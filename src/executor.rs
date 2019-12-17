@@ -5,11 +5,17 @@ use futures::stream::futures_unordered::FuturesUnordered;
 
 
 pub struct LocalPool {
-    queue: FuturesUnordered<LocalFutureObj<'static, ()>>
+    queue: FuturesUnordered<LocalFutureObj<'static, ()>>,
+    pending: Vec<LocalFutureObj<'static, ()>>
 }
 
 impl LocalPool {
     pub fn run(&mut self) {
         // TODO
+        //
+        // run task
+        // reset waker
+        // submit queue
+        // wait queue
     }
 }

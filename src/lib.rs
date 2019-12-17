@@ -2,6 +2,7 @@
 
 mod channel;
 mod oneshot;
+mod waker;
 mod executor;
 pub mod action;
 
@@ -13,6 +14,8 @@ use io_uring::{ squeue, cqueue, opcode, IoUring };
 use crate::channel::{ Channel, Sender };
 use crate::action::{ CompletionEntry, Action };
 
+
+const WAKEUP_TOKEN: usize = 0x01;
 
 pub struct Proactor<C: Channel<CompletionEntry>> {
     timeout: Box<opcode::Timespec>,
@@ -54,7 +57,15 @@ impl<C: Channel<CompletionEntry>> Handle<C> {
 }
 
 impl<C: Channel<CompletionEntry>> Proactor<C> {
-    pub fn complete(&mut self) -> io::Result<()> {
+    pub fn unpark(&self) -> () {
+        todo!()
+    }
+
+    pub fn park(&mut self) -> io::Result<()> {
+        todo!()
+    }
+
+    pub fn park_timeout(&mut self, dur: ()) -> io::Result<()> {
         let mut ring = self.ring.borrow_mut();
 
         ring.submit_and_wait(1)?;

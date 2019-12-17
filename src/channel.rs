@@ -10,8 +10,8 @@ pub trait Channel<T> {
 }
 
 pub trait Sender<T> {
-    fn into_raw(self) -> *mut ();
-    unsafe fn from_raw(ptr: *mut ()) -> Self;
+    fn into_raw(self) -> *const ();
+    unsafe fn from_raw(ptr: *const ()) -> Self;
 
     fn send(self, item: T) -> Result<(), T>;
 }

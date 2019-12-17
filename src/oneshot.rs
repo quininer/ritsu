@@ -1,13 +1,16 @@
 use std::rc::{ Rc, Weak };
 use std::pin::Pin;
 use std::cell::RefCell;
+use std::marker::PhantomData;
 use std::task::{ Context, Waker, Poll };
 use std::future::Future;
 use futures::future::FusedFuture;
 use crate::channel;
 
 
-pub struct Oneshot;
+pub struct Oneshot<T> {
+    _mark: PhantomData<T>
+}
 
 pub struct Sender<T>(Weak<RefCell<Inner<T>>>);
 
@@ -21,7 +24,7 @@ struct Inner<T> {
     waker: Option<Waker>,
 }
 
-impl<T> channel::Channel<T> for Oneshot {
+impl<T> channel::Channel<T> for Oneshot<T> {
     type Sender = Sender<T>;
     type Receiver = Receiver<T>;
 
@@ -37,11 +40,11 @@ impl<T> channel::Channel<T> for Oneshot {
 }
 
 impl<T> channel::Sender<T> for Sender<T> {
-    fn into_raw(self) -> *mut () {
+    fn into_raw(self) -> *const () {
         self.0.into_raw() as _
     }
 
-    unsafe fn from_raw(ptr: *mut ()) -> Self {
+    unsafe fn from_raw(ptr: *const ()) -> Self {
         Sender(Weak::from_raw(ptr as *const RefCell<Inner<T>>))
     }
 
