@@ -1,23 +1,31 @@
 use std::{ io, mem };
 use std::sync::{ Arc, Weak };
-use std::os::unix::io::RawFd;
+use std::os::unix::io::{ AsRawFd, RawFd };
 use std::task::{ RawWaker, RawWakerVTable };
 
 
+pub struct EventFd(Arc<Inner>);
+
 #[derive(Clone)]
-pub struct Waker(Weak<RawFd>);
+pub struct Waker(Weak<Inner>);
 
-pub fn create() -> io::Result<(Arc<RawFd>, Waker)> {
-    let fd = unsafe {
-        libc::eventfd(0, libc::EFD_CLOEXEC | libc::EFD_NONBLOCK)
-    };
+struct Inner(RawFd);
 
-    if fd != -1 {
-        let fd = Arc::new(fd);
-        let waker = Waker(Arc::downgrade(&fd));
-        Ok((fd, waker))
-    } else {
-        Err(io::Error::last_os_error())
+impl EventFd {
+    pub fn new() -> io::Result<EventFd> {
+        let fd = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC) };
+
+        if fd != -1 {
+            let fd = Arc::new(Inner(fd));
+            Ok(EventFd(fd))
+        } else {
+            Err(io::Error::last_os_error())
+        }
+    }
+
+    pub fn waker(&self) -> Waker {
+        let inner = Arc::downgrade(&self.0);
+        Waker(inner)
     }
 }
 
@@ -27,7 +35,7 @@ impl Waker {
     }
 
     unsafe fn from_raw(ptr: *const ()) -> Self {
-        Waker(Weak::from_raw(ptr as *const RawFd))
+        Waker(Weak::from_raw(ptr as *const Inner))
     }
 
     pub fn into_raw_waker(self) -> RawWaker {
@@ -42,11 +50,17 @@ impl Waker {
             const BUF: [u8; 8] = [1, 0, 0, 0, 0, 0, 0, 0];
 
             unsafe {
-                libc::write(*fd, BUF.as_ptr() as *const _, BUF.len() as _);
+                libc::write(fd.0, BUF.as_ptr() as *const _, BUF.len() as _);
 
                 // TODO fail
             }
         }
+    }
+}
+
+impl AsRawFd for EventFd {
+    fn as_raw_fd(&self) -> RawFd {
+        (self.0).0
     }
 }
 
@@ -69,4 +83,14 @@ unsafe fn wake_by_ref(ptr: *const ()) {
 
 unsafe fn drop(ptr: *const ()) {
     Waker::from_raw(ptr);
+}
+
+impl Drop for Inner {
+    fn drop(&mut self) {
+        unsafe {
+            libc::close(self.0);
+
+            // TODO log error
+        }
+    }
 }

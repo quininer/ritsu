@@ -9,17 +9,25 @@ pub mod action;
 use std::io;
 use std::rc::{ Rc, Weak };
 use std::cell::RefCell;
+use std::time::Duration;
 use std::marker::PhantomData;
+use std::os::unix::io::AsRawFd;
 use io_uring::{ squeue, cqueue, opcode, IoUring };
+use crate::waker::{ EventFd, Waker };
 use crate::channel::{ Channel, Sender };
 use crate::action::{ CompletionEntry, Action };
 
 
-const WAKEUP_TOKEN: usize = 0x01;
+const ZERO_DURATION: Duration = Duration::from_secs(0);
+const WAKEUP_TOKEN: usize = 0x00;
+const EVENT_TOKEN: usize = 0x01;
+const EVENT_EMPTY: [u8; 8] = [0; 8];
 
 pub struct Proactor<C: Channel<CompletionEntry>> {
-    timeout: Box<opcode::Timespec>,
     ring: Rc<RefCell<IoUring>>,
+    eventfd: EventFd,
+    eventbuf: Box<[u8; 8]>,
+    timeout: Box<opcode::Timespec>,
     _mark: PhantomData<C>
 }
 
@@ -30,34 +38,30 @@ pub struct Handle<C: Channel<CompletionEntry>> {
 
 impl<C: Channel<CompletionEntry>> Handle<C> {
     pub fn submit<A: Action<C>>(&self, action: A) -> io::Result<()> {
-        if let Some(ring) = self.ring.upgrade() {
-            unsafe {
-                let (sender, entry) = action.build_request();
+        let ring = self.ring.upgrade()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "Proactor closed"))?;
+        let mut ring = ring.borrow_mut();
 
-                // TODO
-                let entry = entry.user_data(sender.into_raw() as _);
+        unsafe {
+            let (sender, entry) = action.build_request();
+            let mut entry = entry.user_data(sender.into_raw() as _);
 
-                let mut ring = ring.borrow_mut();
-
-                let ret = {
-                    let mut sq = ring.submission().available();
-                    sq.push(entry)
-                };
-                if let Err(entry) = ret {
-                    // TODO
-                    return Err(io::ErrorKind::WouldBlock.into());
+            loop {
+                match ring.submission().available().push(entry) {
+                    Ok(_) => break,
+                    Err(output) => entry = output
                 }
-            }
 
-            Ok(())
-        } else {
-            Err(io::ErrorKind::NotConnected.into())
+                ring.submit()?;
+            }
         }
+
+        Ok(())
     }
 }
 
 impl<C: Channel<CompletionEntry>> Proactor<C> {
-    pub fn unpark(&self) -> () {
+    pub fn unpark(&self) -> Waker {
         todo!()
     }
 
@@ -65,8 +69,42 @@ impl<C: Channel<CompletionEntry>> Proactor<C> {
         todo!()
     }
 
-    pub fn park_timeout(&mut self, dur: ()) -> io::Result<()> {
+    pub fn park_timeout(&mut self, dur: Duration) -> io::Result<()> {
         let mut ring = self.ring.borrow_mut();
+        let mut event = None;
+        let mut timeout = None;
+
+        if &EVENT_EMPTY != &*self.eventbuf {
+            unsafe {
+                let mut bufs = [io::IoSliceMut::new(&mut self.eventbuf[..])];
+
+                let entry = opcode::Readv::new(
+                    opcode::Target::Fd(self.eventfd.as_raw_fd()),
+                    bufs.as_mut_ptr() as *mut _,
+                    1
+                )
+                    .build()
+                    .user_data(EVENT_TOKEN as _);
+                event = Some(entry);
+            }
+        }
+
+        if dur != ZERO_DURATION {
+            unsafe {
+                self.timeout.tv_sec = dur.as_secs() as _;
+                self.timeout.tv_nsec = dur.subsec_nanos() as _;
+
+                let entry = opcode::Timeout::new(&*self.timeout)
+                    .build()
+                    .user_data(WAKEUP_TOKEN as _);
+
+                timeout = Some(entry);
+            }
+        }
+
+        if event.is_some() || timeout.is_some() {
+            // TODO push entry
+        }
 
         ring.submit_and_wait(1)?;
 
