@@ -15,7 +15,7 @@ use std::os::unix::io::AsRawFd;
 use io_uring::{ squeue, cqueue, opcode, IoUring };
 use crate::waker::{ EventFd, Waker };
 use crate::channel::{ Channel, Sender };
-use crate::action::{ CompletionEntry, Action };
+use crate::action::{ SubmissionEntry, CompletionEntry, Action };
 
 
 const ZERO_DURATION: Duration = Duration::from_secs(0);
@@ -37,14 +37,13 @@ pub struct Handle<C: Channel<CompletionEntry>> {
 }
 
 impl<C: Channel<CompletionEntry>> Handle<C> {
-    pub fn submit<A: Action<C>>(&self, action: A) -> io::Result<()> {
+    pub fn push(&self, ticket: C::Sender, entry: SubmissionEntry) -> io::Result<()> {
         let ring = self.ring.upgrade()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "Proactor closed"))?;
         let mut ring = ring.borrow_mut();
 
         unsafe {
-            let (sender, entry) = action.build_request();
-            let mut entry = entry.user_data(sender.into_raw() as _);
+            let mut entry = entry.user_data(ticket.into_raw() as _);
 
             loop {
                 match ring.submission().available().push(entry) {
@@ -65,14 +64,8 @@ impl<C: Channel<CompletionEntry>> Proactor<C> {
         todo!()
     }
 
-    pub fn park(&mut self) -> io::Result<()> {
-        todo!()
-    }
-
-    pub fn park_timeout(&mut self, dur: Duration) -> io::Result<()> {
+    pub fn park(&mut self, dur: Option<Duration>) -> io::Result<()> {
         let mut ring = self.ring.borrow_mut();
-        let mut event = None;
-        let mut timeout = None;
 
         if &EVENT_EMPTY != &*self.eventbuf {
             unsafe {
@@ -85,26 +78,23 @@ impl<C: Channel<CompletionEntry>> Proactor<C> {
                 )
                     .build()
                     .user_data(EVENT_TOKEN as _);
-                event = Some(entry);
             }
         }
 
-        if dur != ZERO_DURATION {
-            unsafe {
-                self.timeout.tv_sec = dur.as_secs() as _;
-                self.timeout.tv_nsec = dur.subsec_nanos() as _;
+        if let Some(dur) = dur {
+            if dur != ZERO_DURATION {
+                unsafe {
+                    self.timeout.tv_sec = dur.as_secs() as _;
+                    self.timeout.tv_nsec = dur.subsec_nanos() as _;
 
-                let entry = opcode::Timeout::new(&*self.timeout)
-                    .build()
-                    .user_data(WAKEUP_TOKEN as _);
-
-                timeout = Some(entry);
+                    let entry = opcode::Timeout::new(&*self.timeout)
+                        .build()
+                        .user_data(WAKEUP_TOKEN as _);
+                }
             }
         }
 
-        if event.is_some() || timeout.is_some() {
-            // TODO push entry
-        }
+        // TODO
 
         ring.submit_and_wait(1)?;
 
