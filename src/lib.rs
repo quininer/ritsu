@@ -1,9 +1,7 @@
 #![feature(weak_into_raw)]
 
-mod channel;
 mod oneshot;
 mod waker;
-mod executor;
 pub mod action;
 
 use std::io;
@@ -14,7 +12,6 @@ use std::marker::PhantomData;
 use std::os::unix::io::AsRawFd;
 use io_uring::{ squeue, cqueue, opcode, IoUring };
 use crate::waker::{ EventFd, Waker };
-use crate::channel::{ Channel, Sender };
 use crate::action::{ SubmissionEntry, CompletionEntry };
 
 
@@ -22,7 +19,7 @@ const EVENT_EMPTY: [u8; 8] = [0; 8];
 const EVENT_TOKEN: u64 = 0x00;
 const TIMEOUT_TOKEN: u64 = 0x00u64.wrapping_sub(1);
 
-pub struct Proactor<C: Channel<CompletionEntry>> {
+pub struct Proactor<C: Ticket<Item = CompletionEntry>> {
     ring: Rc<RefCell<IoUring>>,
     eventfd: EventFd,
     eventbuf: Box<[u8; 8]>,
@@ -30,13 +27,22 @@ pub struct Proactor<C: Channel<CompletionEntry>> {
     _mark: PhantomData<C>
 }
 
-pub struct Handle<C: Channel<CompletionEntry>> {
+pub struct Handle<C: Ticket<Item = CompletionEntry>> {
     ring: Weak<RefCell<IoUring>>,
     _mark: PhantomData<C>
 }
 
-impl<C: Channel<CompletionEntry>> Handle<C> {
-    pub fn push(&self, ticket: C::Sender, entry: SubmissionEntry) -> io::Result<()> {
+pub trait Ticket {
+    type Item;
+
+    fn into_raw(self) -> *const ();
+    unsafe fn from_raw(ptr: *const ()) -> Self;
+
+    fn send(self, item: Self::Item) -> Result<(), Self::Item>;
+}
+
+impl<C: Ticket<Item = CompletionEntry>> Handle<C> {
+    pub unsafe fn push(&self, ticket: C, entry: SubmissionEntry) -> io::Result<()> {
         let ring = self.ring.upgrade()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "Proactor closed"))?;
         let mut ring = ring.borrow_mut();
@@ -47,7 +53,7 @@ impl<C: Channel<CompletionEntry>> Handle<C> {
             loop {
                 match ring.submission().available().push(entry) {
                     Ok(_) => break,
-                    Err(output) => entry = output
+                    Err(e) => entry = e
                 }
 
                 ring.submit()?;
@@ -58,7 +64,7 @@ impl<C: Channel<CompletionEntry>> Handle<C> {
     }
 }
 
-impl<C: Channel<CompletionEntry>> Proactor<C> {
+impl<C: Ticket<Item = CompletionEntry>> Proactor<C> {
     pub fn unpark(&self) -> Waker {
         self.eventfd.waker()
     }

@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use std::task::{ Context, Waker, Poll };
 use std::future::Future;
 use futures::future::FusedFuture;
-use crate::channel;
+use crate::Ticket;
 
 
 pub struct Oneshot<T> {
@@ -24,22 +24,19 @@ struct Inner<T> {
     waker: Option<Waker>,
 }
 
-impl<T> channel::Channel<T> for Oneshot<T> {
-    type Sender = Sender<T>;
-    type Receiver = Receiver<T>;
+pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
+    let inner = Rc::new(RefCell::new(Inner {
+        value: None,
+        waker: None
+    }));
+    let inner2 = Rc::downgrade(&inner);
 
-    fn new() -> (Self::Sender, Self::Receiver) {
-        let inner = Rc::new(RefCell::new(Inner {
-            value: None,
-            waker: None
-        }));
-        let inner2 = Rc::downgrade(&inner);
-
-        (Sender(inner2), Receiver { inner, is_end: false })
-    }
+    (Sender(inner2), Receiver { inner, is_end: false })
 }
 
-impl<T> channel::Sender<T> for Sender<T> {
+impl<T> Ticket for Sender<T> {
+    type Item = T;
+
     fn into_raw(self) -> *const () {
         self.0.into_raw() as _
     }
@@ -90,4 +87,18 @@ impl<T> FusedFuture for Receiver<T> {
     }
 }
 
-impl<T> channel::Receiver<T> for Receiver<T> {}
+#[test]
+fn test_it() {
+    use std::thread;
+    use std::sync::{ Arc, Mutex };
+    use crate::Ticket;
+
+    let (tx, rx) = channel::<()>();
+    let tx = Arc::new(Mutex::new(tx));
+
+    let h = thread::spawn(move || {
+        let _ = tx.lock().unwrap().send(());
+    });
+
+    h.join().unwrap();
+}
