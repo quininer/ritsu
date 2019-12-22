@@ -15,13 +15,12 @@ use std::os::unix::io::AsRawFd;
 use io_uring::{ squeue, cqueue, opcode, IoUring };
 use crate::waker::{ EventFd, Waker };
 use crate::channel::{ Channel, Sender };
-use crate::action::{ SubmissionEntry, CompletionEntry, Action };
+use crate::action::{ SubmissionEntry, CompletionEntry };
 
 
-const ZERO_DURATION: Duration = Duration::from_secs(0);
-const WAKEUP_TOKEN: usize = 0x00;
-const EVENT_TOKEN: usize = 0x01;
 const EVENT_EMPTY: [u8; 8] = [0; 8];
+const EVENT_TOKEN: u64 = 0x00;
+const TIMEOUT_TOKEN: u64 = 0x00u64.wrapping_sub(1);
 
 pub struct Proactor<C: Channel<CompletionEntry>> {
     ring: Rc<RefCell<IoUring>>,
@@ -61,47 +60,90 @@ impl<C: Channel<CompletionEntry>> Handle<C> {
 
 impl<C: Channel<CompletionEntry>> Proactor<C> {
     pub fn unpark(&self) -> Waker {
-        todo!()
+        self.eventfd.waker()
+    }
+
+    fn maybe_event(&mut self) -> Option<squeue::Entry> {
+        if &EVENT_EMPTY == &*self.eventbuf {
+            return None;
+        }
+
+        self.eventbuf.copy_from_slice(&EVENT_EMPTY);
+
+        let mut bufs = [io::IoSliceMut::new(&mut self.eventbuf[..])];
+        let op = opcode::Target::Fd(self.eventfd.as_raw_fd());
+        let bufs_ptr = bufs.as_mut_ptr() as *mut _;
+
+        let entry = opcode::Readv::new(op, bufs_ptr, 1)
+            .build()
+            .user_data(EVENT_TOKEN);
+        Some(entry)
+    }
+
+    /// TODO
+    ///
+    /// The current timeout implement may cause spurious wakeups.
+    fn maybe_timeout(&mut self, dur: Duration) -> Option<squeue::Entry> {
+        if dur == Duration::from_secs(0) {
+            return None;
+        }
+
+        self.timeout.tv_sec = dur.as_secs() as _;
+        self.timeout.tv_nsec = dur.subsec_nanos() as _;
+
+        let entry = opcode::Timeout::new(&*self.timeout)
+            .build()
+            .user_data(TIMEOUT_TOKEN);
+        Some(entry)
     }
 
     pub fn park(&mut self, dur: Option<Duration>) -> io::Result<()> {
+        let mut event_e = self.maybe_event();
+        let mut timeout_e = if let Some(dur) = dur {
+            self.maybe_timeout(dur)
+        } else {
+            None
+        };
+        let nowait = dur.is_some() && timeout_e.is_none();
+
         let mut ring = self.ring.borrow_mut();
+        let (submitter, sq, cq) = ring.split();
 
-        if &EVENT_EMPTY != &*self.eventbuf {
+        while event_e.is_some() || timeout_e.is_some() {
+            let mut sq = sq.available();
+
             unsafe {
-                let mut bufs = [io::IoSliceMut::new(&mut self.eventbuf[..])];
+                if let Some(entry) = event_e.take() {
+                    if let Err(entry) = sq.push(entry) {
+                        event_e = Some(entry);
+                    }
+                }
 
-                let entry = opcode::Readv::new(
-                    opcode::Target::Fd(self.eventfd.as_raw_fd()),
-                    bufs.as_mut_ptr() as *mut _,
-                    1
-                )
-                    .build()
-                    .user_data(EVENT_TOKEN as _);
-            }
-        }
-
-        if let Some(dur) = dur {
-            if dur != ZERO_DURATION {
-                unsafe {
-                    self.timeout.tv_sec = dur.as_secs() as _;
-                    self.timeout.tv_nsec = dur.subsec_nanos() as _;
-
-                    let entry = opcode::Timeout::new(&*self.timeout)
-                        .build()
-                        .user_data(WAKEUP_TOKEN as _);
+                if let Some(entry) = timeout_e.take() {
+                    if let Err(entry) = sq.push(entry) {
+                        timeout_e = Some(entry);
+                    }
                 }
             }
+
+            if event_e.is_some() || timeout_e.is_some() {
+                submitter.submit()?;
+            }
         }
 
-        // TODO
+        if nowait {
+            submitter.submit()?;
+        } else {
+            submitter.submit_and_wait(1)?;
+        }
 
-        ring.submit_and_wait(1)?;
-
-        for entry in ring.completion().available() {
-            unsafe {
-                let sender = oneshot::Sender::from_raw(entry.user_data() as _);
-                let _ = sender.send(entry);
+        for entry in cq.available() {
+            match entry.user_data() {
+                EVENT_TOKEN | TIMEOUT_TOKEN => (),
+                ptr => unsafe {
+                    let sender = oneshot::Sender::from_raw(ptr as _);
+                    let _ = sender.send(entry);
+                }
             }
         }
 
