@@ -1,11 +1,10 @@
-use std::rc::{ Rc, Weak };
 use std::pin::Pin;
 use std::cell::RefCell;
+use std::rc::{ Rc, Weak };
 use std::task::{ Context, Waker, Poll };
 use std::future::Future;
 use futures::future::FusedFuture;
-use crate::Ticket;
-use crate::action::CompletionEntry;
+use crate::{ Ticket, CompletionEntry };
 
 
 pub struct Sender<T>(Weak<RefCell<Inner<T>>>);

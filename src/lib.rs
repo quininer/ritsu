@@ -1,19 +1,24 @@
 #![feature(weak_into_raw)]
 
 mod waker;
-pub mod action;
 pub mod oneshot;
+pub mod action;
+pub mod executor;
 
 use std::io;
-use std::rc::{ Rc, Weak };
+use std::sync::Arc;
 use std::cell::RefCell;
 use std::time::Duration;
+use std::rc::{ Rc, Weak };
 use std::marker::PhantomData;
 use std::os::unix::io::AsRawFd;
-use io_uring::{ squeue, opcode, IoUring };
-use crate::waker::{ EventFd, Waker };
-use crate::action::{ SubmissionEntry, CompletionEntry };
+use futures_task::{ self as task, WakerRef, Waker };
+use io_uring::{ squeue, cqueue, opcode, IoUring };
+use crate::waker::{ EventFd };
 
+
+pub type SubmissionEntry = squeue::Entry;
+pub type CompletionEntry = cqueue::Entry;
 
 const EVENT_EMPTY: [u8; 8] = [0; 8];
 const EVENT_TOKEN: u64 = 0x00;
@@ -21,7 +26,7 @@ const TIMEOUT_TOKEN: u64 = 0x00u64.wrapping_sub(1);
 
 pub struct Proactor<C: Ticket> {
     ring: Rc<RefCell<IoUring>>,
-    eventfd: EventFd,
+    eventfd: Arc<EventFd>,
     eventbuf: Box<[u8; 8]>,
     timeout: Box<opcode::Timespec>,
     _mark: PhantomData<C>
@@ -45,15 +50,19 @@ impl<C: Ticket> Proactor<C> {
 
         Ok(Proactor {
             ring: Rc::new(RefCell::new(ring)),
-            eventfd: EventFd::new()?,
+            eventfd: Arc::new(EventFd::new()?),
             eventbuf: Box::new([0; 8]),
             timeout: Box::new(opcode::Timespec::default()),
             _mark: PhantomData
         })
     }
 
-    pub fn unpark(&self) -> Waker {
-        self.eventfd.waker()
+    pub fn waker(&self) -> Waker {
+        task::waker(self.eventfd.clone())
+    }
+
+    pub fn waker_ref(&self) -> WakerRef {
+        task::waker_ref(&self.eventfd)
     }
 
     fn maybe_event(&mut self) -> Option<squeue::Entry> {
