@@ -5,7 +5,7 @@ pub mod oneshot;
 pub mod action;
 pub mod executor;
 
-use std::io;
+use std::{ io, mem };
 use std::sync::Arc;
 use std::cell::RefCell;
 use std::time::Duration;
@@ -28,6 +28,7 @@ const TIMEOUT_TOKEN: u64 = 0x00u64.wrapping_sub(1);
 pub struct Proactor<C: Ticket> {
     ring: Rc<RefCell<IoUring>>,
     eventfd: Arc<EventFd>,
+    eventbufs: Box<[libc::iovec]>,
     eventbuf: Box<[u8; 8]>,
     timeout: Box<opcode::Timespec>,
     _mark: PhantomData<C>
@@ -49,11 +50,15 @@ pub trait Ticket {
 impl<C: Ticket> Proactor<C> {
     pub fn new() -> io::Result<Proactor<C>> {
         let ring = io_uring::IoUring::new(256)?; // TODO better number
+        let mut eventbuf = Box::new([0; 8]);
+        let eventbuf_ptr =
+            unsafe { mem::transmute::<_, libc::iovec>(io::IoSliceMut::new(&mut *eventbuf)) };
+        let eventbufs = Box::new([eventbuf_ptr]);
 
         Ok(Proactor {
             ring: Rc::new(RefCell::new(ring)),
             eventfd: Arc::new(EventFd::new()?),
-            eventbuf: Box::new([0; 8]),
+            eventbuf, eventbufs,
             timeout: Box::new(opcode::Timespec::default()),
             _mark: PhantomData
         })
@@ -81,9 +86,8 @@ impl<C: Ticket> Proactor<C> {
 
         self.eventbuf.copy_from_slice(&EVENT_EMPTY);
 
-        let mut bufs = [io::IoSliceMut::new(&mut self.eventbuf[..])];
         let op = opcode::Target::Fd(self.eventfd.as_raw_fd());
-        let bufs_ptr = bufs.as_mut_ptr() as *mut _;
+        let bufs_ptr = self.eventbufs.as_mut_ptr();
 
         let entry = opcode::Readv::new(op, bufs_ptr, 1)
             .build()
