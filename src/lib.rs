@@ -1,8 +1,8 @@
 #![feature(weak_into_raw)]
 
-mod oneshot;
 mod waker;
 pub mod action;
+pub mod oneshot;
 
 use std::io;
 use std::rc::{ Rc, Weak };
@@ -10,7 +10,7 @@ use std::cell::RefCell;
 use std::time::Duration;
 use std::marker::PhantomData;
 use std::os::unix::io::AsRawFd;
-use io_uring::{ squeue, cqueue, opcode, IoUring };
+use io_uring::{ squeue, opcode, IoUring };
 use crate::waker::{ EventFd, Waker };
 use crate::action::{ SubmissionEntry, CompletionEntry };
 
@@ -19,7 +19,7 @@ const EVENT_EMPTY: [u8; 8] = [0; 8];
 const EVENT_TOKEN: u64 = 0x00;
 const TIMEOUT_TOKEN: u64 = 0x00u64.wrapping_sub(1);
 
-pub struct Proactor<C: Ticket<Item = CompletionEntry>> {
+pub struct Proactor<C: Ticket> {
     ring: Rc<RefCell<IoUring>>,
     eventfd: EventFd,
     eventbuf: Box<[u8; 8]>,
@@ -27,44 +27,31 @@ pub struct Proactor<C: Ticket<Item = CompletionEntry>> {
     _mark: PhantomData<C>
 }
 
-pub struct Handle<C: Ticket<Item = CompletionEntry>> {
+pub struct Handle<C: Ticket> {
     ring: Weak<RefCell<IoUring>>,
     _mark: PhantomData<C>
 }
 
 pub trait Ticket {
-    type Item;
-
     fn into_raw(self) -> *const ();
     unsafe fn from_raw(ptr: *const ()) -> Self;
 
-    fn send(self, item: Self::Item) -> Result<(), Self::Item>;
+    fn set(self, item: CompletionEntry);
 }
 
-impl<C: Ticket<Item = CompletionEntry>> Handle<C> {
-    pub unsafe fn push(&self, ticket: C, entry: SubmissionEntry) -> io::Result<()> {
-        let ring = self.ring.upgrade()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "Proactor closed"))?;
-        let mut ring = ring.borrow_mut();
+impl<C: Ticket> Proactor<C> {
+    pub fn new() -> io::Result<Proactor<C>> {
+        let ring = io_uring::IoUring::new(256)?; // TODO better number
 
-        unsafe {
-            let mut entry = entry.user_data(ticket.into_raw() as _);
-
-            loop {
-                match ring.submission().available().push(entry) {
-                    Ok(_) => break,
-                    Err(e) => entry = e
-                }
-
-                ring.submit()?;
-            }
-        }
-
-        Ok(())
+        Ok(Proactor {
+            ring: Rc::new(RefCell::new(ring)),
+            eventfd: EventFd::new()?,
+            eventbuf: Box::new([0; 8]),
+            timeout: Box::new(opcode::Timespec::default()),
+            _mark: PhantomData
+        })
     }
-}
 
-impl<C: Ticket<Item = CompletionEntry>> Proactor<C> {
     pub fn unpark(&self) -> Waker {
         self.eventfd.waker()
     }
@@ -147,10 +134,29 @@ impl<C: Ticket<Item = CompletionEntry>> Proactor<C> {
             match entry.user_data() {
                 EVENT_TOKEN | TIMEOUT_TOKEN => (),
                 ptr => unsafe {
-                    let sender = oneshot::Sender::from_raw(ptr as _);
-                    let _ = sender.send(entry);
+                    C::from_raw(ptr as _).set(entry.clone());
                 }
             }
+        }
+
+        Ok(())
+    }
+}
+
+impl<C: Ticket> Handle<C> {
+    pub unsafe fn push(&self, sender: C, entry: SubmissionEntry) -> io::Result<()> {
+        let ring = self.ring.upgrade()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "Proactor closed"))?;
+        let mut ring = ring.borrow_mut();
+        let mut entry = entry.user_data(sender.into_raw() as _);
+
+        loop {
+            match ring.submission().available().push(entry) {
+                Ok(_) => break,
+                Err(e) => entry = e
+            }
+
+            ring.submit()?;
         }
 
         Ok(())

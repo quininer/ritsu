@@ -1,22 +1,22 @@
-use std::{ io, mem };
+use std::mem;
+use std::fs::File;
+use std::io::{ self, Write };
 use std::sync::{ Arc, Weak };
-use std::os::unix::io::{ AsRawFd, RawFd };
+use std::os::unix::io::{ FromRawFd, AsRawFd, RawFd };
 use std::task::{ RawWaker, RawWakerVTable };
 
 
-pub struct EventFd(Arc<Inner>);
+pub struct EventFd(Arc<File>);
 
 #[derive(Clone)]
-pub struct Waker(Weak<Inner>);
-
-struct Inner(RawFd);
+pub struct Waker(Weak<File>);
 
 impl EventFd {
     pub fn new() -> io::Result<EventFd> {
         let fd = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC) };
 
         if fd != -1 {
-            let fd = Arc::new(Inner(fd));
+            let fd = Arc::new(unsafe { File::from_raw_fd(fd) });
             Ok(EventFd(fd))
         } else {
             Err(io::Error::last_os_error())
@@ -24,8 +24,7 @@ impl EventFd {
     }
 
     pub fn waker(&self) -> Waker {
-        let inner = Arc::downgrade(&self.0);
-        Waker(inner)
+        Waker(Arc::downgrade(&self.0))
     }
 }
 
@@ -35,7 +34,7 @@ impl Waker {
     }
 
     unsafe fn from_raw(ptr: *const ()) -> Self {
-        Waker(Weak::from_raw(ptr as *const Inner))
+        Waker(Weak::from_raw(ptr as *const File))
     }
 
     pub fn into_raw_waker(self) -> RawWaker {
@@ -47,20 +46,16 @@ impl Waker {
 
     pub fn wake(&self) {
         if let Some(fd) = self.0.upgrade() {
-            const BUF: [u8; 8] = [1, 0, 0, 0, 0, 0, 0, 0];
+            let _ = (&*fd).write(&0x1u64.to_le_bytes());
 
-            unsafe {
-                libc::write(fd.0, BUF.as_ptr() as *const _, BUF.len() as _);
-
-                // TODO fail
-            }
+            // TODO log fail
         }
     }
 }
 
 impl AsRawFd for EventFd {
     fn as_raw_fd(&self) -> RawFd {
-        (self.0).0
+        self.0.as_raw_fd()
     }
 }
 
@@ -83,14 +78,4 @@ unsafe fn wake_by_ref(ptr: *const ()) {
 
 unsafe fn drop(ptr: *const ()) {
     Waker::from_raw(ptr);
-}
-
-impl Drop for Inner {
-    fn drop(&mut self) {
-        unsafe {
-            libc::close(self.0);
-
-            // TODO log error
-        }
-    }
 }

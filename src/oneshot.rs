@@ -1,16 +1,12 @@
 use std::rc::{ Rc, Weak };
 use std::pin::Pin;
 use std::cell::RefCell;
-use std::marker::PhantomData;
 use std::task::{ Context, Waker, Poll };
 use std::future::Future;
 use futures::future::FusedFuture;
 use crate::Ticket;
+use crate::action::CompletionEntry;
 
-
-pub struct Oneshot<T> {
-    _mark: PhantomData<T>
-}
 
 pub struct Sender<T>(Weak<RefCell<Inner<T>>>);
 
@@ -34,18 +30,8 @@ pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
     (Sender(inner2), Receiver { inner, is_end: false })
 }
 
-impl<T> Ticket for Sender<T> {
-    type Item = T;
-
-    fn into_raw(self) -> *const () {
-        self.0.into_raw() as _
-    }
-
-    unsafe fn from_raw(ptr: *const ()) -> Self {
-        Sender(Weak::from_raw(ptr as *const RefCell<Inner<T>>))
-    }
-
-    fn send(self, item: T) -> Result<(), T> {
+impl<T> Sender<T> {
+    pub fn send(self, item: T) -> Result<(), T> {
         if let Some(inner) = self.0.upgrade() {
             let mut inner = inner.borrow_mut();
 
@@ -62,6 +48,20 @@ impl<T> Ticket for Sender<T> {
     }
 }
 
+impl Ticket for Sender<CompletionEntry> {
+    fn into_raw(self) -> *const () {
+        self.0.into_raw() as _
+    }
+
+    unsafe fn from_raw(ptr: *const ()) -> Self {
+        Sender(Weak::from_raw(ptr as *const RefCell<Inner<_>>))
+    }
+
+    fn set(self, item: CompletionEntry) {
+        let _ = self.send(item);
+    }
+}
+
 impl<T> Future for Receiver<T> {
     type Output = T;
 
@@ -71,11 +71,9 @@ impl<T> Future for Receiver<T> {
 
         if let Some(val) = inner.value.take() {
             this.is_end = true;
-
             Poll::Ready(val)
         } else {
             inner.waker = Some(cx.waker().clone());
-
             Poll::Pending
         }
     }
