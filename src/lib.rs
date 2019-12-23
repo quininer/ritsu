@@ -14,11 +14,12 @@ use std::marker::PhantomData;
 use std::os::unix::io::AsRawFd;
 use futures_task::{ self as task, WakerRef, Waker };
 use io_uring::{ squeue, cqueue, opcode, IoUring };
-use crate::waker::{ EventFd };
+use crate::waker::EventFd;
 
 
 pub type SubmissionEntry = squeue::Entry;
 pub type CompletionEntry = cqueue::Entry;
+pub type LocalHandle = Handle<oneshot::Sender<CompletionEntry>>;
 
 const EVENT_EMPTY: [u8; 8] = [0; 8];
 const EVENT_TOKEN: u64 = 0x00;
@@ -32,6 +33,7 @@ pub struct Proactor<C: Ticket> {
     _mark: PhantomData<C>
 }
 
+#[derive(Clone)]
 pub struct Handle<C: Ticket> {
     ring: Weak<RefCell<IoUring>>,
     _mark: PhantomData<C>
@@ -63,6 +65,13 @@ impl<C: Ticket> Proactor<C> {
 
     pub fn waker_ref(&self) -> WakerRef {
         task::waker_ref(&self.eventfd)
+    }
+
+    pub fn handle(&self) -> Handle<C> {
+        Handle {
+            ring: Rc::downgrade(&self.ring),
+            _mark: PhantomData
+        }
     }
 
     fn maybe_event(&mut self) -> Option<squeue::Entry> {

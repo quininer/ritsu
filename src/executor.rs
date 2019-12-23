@@ -10,7 +10,7 @@ use std::task::{ Context, Poll };
 use futures_task::LocalFutureObj;
 use futures_util::pin_mut;
 use futures_util::stream::{ StreamExt, FuturesUnordered };
-use crate::{ oneshot, CompletionEntry, Proactor };
+use crate::{ oneshot, CompletionEntry, Proactor, LocalHandle };
 
 /// A single-threaded task pool for polling futures to completion.
 ///
@@ -46,6 +46,10 @@ impl LocalPool {
             incoming: Default::default(),
             proactor: Proactor::new()?
         })
+    }
+
+    pub fn handle(&self) -> LocalHandle {
+        self.proactor.handle()
     }
 
     /// Get a clonable handle to the pool as a [`Spawn`].

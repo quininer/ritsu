@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use std::rc::{ Rc, Weak };
 use std::task::{ Context, Waker, Poll };
 use std::future::Future;
-use futures::future::FusedFuture;
+use futures_util::future::FusedFuture;
 use crate::{ Ticket, CompletionEntry };
 
 
