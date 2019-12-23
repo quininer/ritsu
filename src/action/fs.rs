@@ -12,14 +12,14 @@ pub struct File {
     handle: LocalHandle,
 }
 
-pub enum ReadFileFuture {
+pub enum ReadFileFuture<'a> {
     Running {
-        fd: File,
-        bufs: Vec<libc::iovec>,
+        fd: &'a File,
+        bufs: Vec<libc::iovec>, // oh no
         buf: Vec<u8>,
         rx: oneshot::Receiver<CompletionEntry>
     },
-    Error { fd: File, err: io::Error },
+    Error(io::Error),
     End
 }
 
@@ -27,25 +27,26 @@ impl File {
     pub fn from_std(fd: fs::File, handle: LocalHandle) -> File {
         File { fd, handle }
     }
-}
 
-pub fn read(fd: File, mut buf: Vec<u8>) -> ReadFileFuture {
-    let (tx, rx) = oneshot::channel();
 
-    let buf_ptr = unsafe { mem::transmute::<_, libc::iovec>(io::IoSliceMut::new(&mut buf)) };
-    let mut bufs = vec![buf_ptr];
-    let op = opcode::Target::Fd(fd.fd.as_raw_fd());
+    pub fn read(&self, mut buf: Vec<u8>) -> ReadFileFuture<'_> {
+        let (tx, rx) = oneshot::channel();
 
-    let entry = opcode::Readv::new(op, bufs.as_mut_ptr(), 1);
+        let buf_ptr = unsafe { mem::transmute::<_, libc::iovec>(io::IoSliceMut::new(&mut buf)) };
+        let mut bufs = vec![buf_ptr];
+        let op = opcode::Target::Fd(self.fd.as_raw_fd());
 
-    match unsafe { fd.handle.push(tx, entry.build()) } {
-        Ok(_) => ReadFileFuture::Running { fd, bufs, buf, rx },
-        Err(err) => ReadFileFuture::Error { fd, err }
+        let entry = opcode::Readv::new(op, bufs.as_mut_ptr(), 1);
+
+        match unsafe { self.handle.push(tx, entry.build()) } {
+            Ok(_) => ReadFileFuture::Running { fd: self, bufs, buf, rx },
+            Err(err) => ReadFileFuture::Error(err)
+        }
     }
 }
 
-impl Future for ReadFileFuture {
-    type Output = (File, io::Result<Vec<u8>>);
+impl<'a> Future for ReadFileFuture<'a> {
+    type Output = io::Result<Vec<u8>>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
@@ -56,9 +57,9 @@ impl Future for ReadFileFuture {
                     Poll::Ready(cqe) => {
                         let res = cqe.result();
                         if res >= 0 {
-                            Poll::Ready((fd, Ok(buf)))
+                            Poll::Ready(Ok(buf))
                         } else {
-                            Poll::Ready((fd, Err(io::Error::from_raw_os_error(-res))))
+                            Poll::Ready(Err(io::Error::from_raw_os_error(-res)))
                         }
                     },
                     Poll::Pending => {
@@ -67,7 +68,7 @@ impl Future for ReadFileFuture {
                     }
                 }
             }
-            ReadFileFuture::Error { fd, err } => Poll::Ready((fd, Err(err))),
+            ReadFileFuture::Error(err) => Poll::Ready(Err(err)),
             ReadFileFuture::End => panic!()
         }
     }

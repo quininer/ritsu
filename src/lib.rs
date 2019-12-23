@@ -28,8 +28,8 @@ const TIMEOUT_TOKEN: u64 = 0x00u64.wrapping_sub(1);
 pub struct Proactor<C: Ticket> {
     ring: Rc<RefCell<IoUring>>,
     eventfd: Arc<EventFd>,
-    eventbufs: Box<[libc::iovec]>,
     eventbuf: Box<[u8; 8]>,
+    eventbufs: Box<[libc::iovec; 1]>,
     timeout: Box<opcode::Timespec>,
     _mark: PhantomData<C>
 }
@@ -80,7 +80,7 @@ impl<C: Ticket> Proactor<C> {
     }
 
     fn maybe_event(&mut self) -> Option<squeue::Entry> {
-        if &EVENT_EMPTY == &*self.eventbuf {
+        if EVENT_EMPTY == *self.eventbuf {
             return None;
         }
 

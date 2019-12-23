@@ -12,8 +12,7 @@ fn main() -> io::Result<()> {
     let fd = fs::File::from_std(fd, handle);
 
     let fut = async move {
-        let (_, buf_result) = fs::read(fd, vec![0; 24]).await;
-        let buf = buf_result?;
+        let buf = fd.read(vec![0; 24]).await?;
 
         println!("{}", String::from_utf8_lossy(&buf));
 
