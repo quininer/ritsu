@@ -28,7 +28,6 @@ impl File {
         File { fd, handle }
     }
 
-
     pub fn read(&self, mut buf: Vec<u8>) -> ReadFileFuture<'_> {
         let (tx, rx) = oneshot::channel();
 

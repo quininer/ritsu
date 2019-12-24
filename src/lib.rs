@@ -30,7 +30,7 @@ pub struct Proactor<C: Ticket> {
     eventfd: Arc<EventFd>,
     eventbuf: Box<[u8; 8]>,
     eventbufs: Box<[libc::iovec; 1]>,
-    timeout: Box<opcode::Timespec>,
+    timeout: Box<opcode::params::Timespec>,
     _mark: PhantomData<C>
 }
 
@@ -59,7 +59,7 @@ impl<C: Ticket> Proactor<C> {
             ring: Rc::new(RefCell::new(ring)),
             eventfd: Arc::new(EventFd::new()?),
             eventbuf, eventbufs,
-            timeout: Box::new(opcode::Timespec::default()),
+            timeout: Box::new(opcode::params::Timespec::default()),
             _mark: PhantomData
         })
     }
@@ -84,8 +84,8 @@ impl<C: Ticket> Proactor<C> {
             return None;
         }
 
+        self.eventfd.clean();
         self.eventbuf.copy_from_slice(&EVENT_EMPTY);
-
         let op = opcode::Target::Fd(self.eventfd.as_raw_fd());
         let bufs_ptr = self.eventbufs.as_mut_ptr();
 
