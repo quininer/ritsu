@@ -13,7 +13,8 @@ use std::rc::{ Rc, Weak };
 use std::marker::PhantomData;
 use std::os::unix::io::AsRawFd;
 use futures_task::{ self as task, WakerRef, Waker };
-use io_uring::{ squeue, cqueue, opcode, IoUring };
+use io_uring::opcode::{ self, types };
+use io_uring::{ squeue, cqueue, IoUring };
 use crate::waker::EventFd;
 
 
@@ -30,7 +31,8 @@ pub struct Proactor<C: Ticket> {
     eventfd: Arc<EventFd>,
     eventbuf: Box<[u8; 8]>,
     eventbufs: Box<[libc::iovec; 1]>,
-    timeout: Box<opcode::params::Timespec>,
+    timeout: Box<types::Timespec>,
+    cqes: Vec<CompletionEntry>,
     _mark: PhantomData<C>
 }
 
@@ -59,7 +61,8 @@ impl<C: Ticket> Proactor<C> {
             ring: Rc::new(RefCell::new(ring)),
             eventfd: Arc::new(EventFd::new()?),
             eventbuf, eventbufs,
-            timeout: Box::new(opcode::params::Timespec::default()),
+            timeout: Box::new(types::Timespec::default()),
+            cqes: Vec::new(),
             _mark: PhantomData
         })
     }
@@ -86,7 +89,7 @@ impl<C: Ticket> Proactor<C> {
 
         self.eventfd.clean();
         self.eventbuf.copy_from_slice(&EVENT_EMPTY);
-        let op = opcode::Target::Fd(self.eventfd.as_raw_fd());
+        let op = types::Target::Fd(self.eventfd.as_raw_fd());
         let bufs_ptr = self.eventbufs.as_mut_ptr();
 
         let entry = opcode::Readv::new(op, bufs_ptr, 1)

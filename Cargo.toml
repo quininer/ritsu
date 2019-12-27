@@ -12,4 +12,4 @@ futures-task = "0.3"
 futures-util = "0.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-io-uring = { package = "linux-io-uring", git = "https://github.com/quininer/linux-io-uring" }
+io-uring = { package = "linux-io-uring", version = "0.1" }

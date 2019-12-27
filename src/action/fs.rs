@@ -3,7 +3,7 @@ use std::pin::Pin;
 use std::future::Future;
 use std::task::{ Context, Poll };
 use std::os::unix::io::AsRawFd;
-use io_uring::opcode;
+use io_uring::opcode::{ self, types };
 use crate::{ oneshot, CompletionEntry, LocalHandle };
 
 
@@ -33,7 +33,7 @@ impl File {
 
         let buf_ptr = unsafe { mem::transmute::<_, libc::iovec>(io::IoSliceMut::new(&mut buf)) };
         let mut bufs = vec![buf_ptr];
-        let op = opcode::Target::Fd(self.fd.as_raw_fd());
+        let op = types::Target::Fd(self.fd.as_raw_fd());
 
         let entry = opcode::Readv::new(op, bufs.as_mut_ptr(), 1);
 
