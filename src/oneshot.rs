@@ -83,19 +83,3 @@ impl<T> FusedFuture for Receiver<T> {
         self.is_end
     }
 }
-
-#[test]
-fn test_it() {
-    use std::thread;
-    use std::sync::{ Arc, Mutex };
-    use crate::Ticket;
-
-    let (tx, rx) = channel::<()>();
-    let tx = Arc::new(Mutex::new(tx));
-
-    let h = thread::spawn(move || {
-        let _ = tx.lock().unwrap().send(());
-    });
-
-    h.join().unwrap();
-}

@@ -62,9 +62,9 @@ impl LocalPool {
     /// Run all tasks in the pool to completion.
     ///
     /// ```
-    /// use futures::executor::LocalPool;
+    /// use ritsu::executor::LocalPool;
     ///
-    /// let mut pool = LocalPool::new();
+    /// let mut pool = LocalPool::new().unwrap();
     ///
     /// // ... spawn some initial tasks using `spawn.spawn()` or `spawn.spawn_local()`
     ///
@@ -82,9 +82,9 @@ impl LocalPool {
     /// Runs all the tasks in the pool until the given future completes.
     ///
     /// ```
-    /// use futures::executor::LocalPool;
+    /// use ritsu::executor::LocalPool;
     ///
-    /// let mut pool = LocalPool::new();
+    /// let mut pool = LocalPool::new().unwrap();
     /// # let my_app  = async {};
     ///
     /// // run tasks in the pool until `my_app` completes
