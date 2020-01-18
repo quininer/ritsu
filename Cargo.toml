@@ -10,6 +10,9 @@ edition = "2018"
 libc = "0.2"
 futures-task = "0.3"
 futures-util = "0.3"
+slab = "*"
+bytes = "0.5"
+async-trait = "*"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-io-uring = { package = "linux-io-uring", version = "0.1" }
+io-uring = "0.3"

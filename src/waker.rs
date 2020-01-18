@@ -1,5 +1,4 @@
 use std::fs::File;
-use std::cell::Cell;
 use std::sync::{ atomic, Arc };
 use std::io::{ self, Write };
 use std::os::unix::io::{ FromRawFd, AsRawFd, RawFd };
@@ -10,10 +9,6 @@ use futures_task::ArcWake;
 pub struct EventFd {
     flag: atomic::AtomicBool,
     fd: File
-}
-
-thread_local!{
-    static ENTER: Cell<bool> = Cell::new(false);
 }
 
 impl EventFd {
@@ -30,24 +25,18 @@ impl EventFd {
         }
     }
 
-    pub fn take(&self) -> bool {
-        self.flag.swap(false, atomic::Ordering::Relaxed)
+    pub fn get(&self) -> bool {
+        self.flag.load(atomic::Ordering::Acquire)
     }
-}
 
-pub fn enter(f: impl FnOnce()) {
-    ENTER.with(|flag| flag.set(true));
-    f();
-    ENTER.with(|flag| flag.set(false));
+    pub fn clean(&self) {
+        self.flag.store(false, atomic::Ordering::Release);
+    }
 }
 
 impl ArcWake for EventFd {
     fn wake_by_ref(arc_self: &Arc<Self>) {
-        if ENTER.with(|flag| flag.get()) {
-            return;
-        }
-
-        if !arc_self.flag.swap(true, atomic::Ordering::Relaxed) {
+        if !arc_self.flag.swap(true, atomic::Ordering::Acquire) {
             let _ = (&arc_self.fd).write(&0x1u64.to_le_bytes());
         }
 

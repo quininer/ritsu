@@ -13,35 +13,23 @@ use futures_util::stream::{ StreamExt, FuturesUnordered };
 use crate::{ oneshot, CompletionEntry, Proactor, LocalHandle };
 
 /// A single-threaded task pool for polling futures to completion.
-///
-/// This executor allows you to multiplex any number of tasks onto a single
-/// thread. It's appropriate to poll strictly I/O-bound futures that do very
-/// little work in between I/O actions.
-///
-/// To get a handle to the pool that implements
-/// [`Spawn`](futures_task::Spawn), use the
-/// [`spawner()`](LocalPool::spawner) method. Because the executor is
-/// single-threaded, it supports a special form of task spawning for non-`Send`
-/// futures, via [`spawn_local_obj`](futures_task::LocalSpawn::spawn_local_obj).
-pub struct LocalPool {
+pub struct Runtime {
     pool: FuturesUnordered<LocalFutureObj<'static, ()>>,
     incoming: Rc<Incoming>,
     proactor: Proactor<oneshot::Sender<CompletionEntry>>
 }
 
-/// A handle to a [`LocalPool`](LocalPool) that implements
-/// [`Spawn`](futures_task::Spawn).
 #[derive(Clone, Debug)]
-pub struct LocalSpawner {
+pub struct Spawner {
     incoming: Weak<Incoming>,
 }
 
 type Incoming = RefCell<Vec<LocalFutureObj<'static, ()>>>;
 
-impl LocalPool {
+impl Runtime {
     /// Create a new, empty pool of tasks.
-    pub fn new() -> io::Result<LocalPool> {
-        Ok(LocalPool {
+    pub fn new() -> io::Result<Runtime> {
+        Ok(Runtime {
             pool: FuturesUnordered::new(),
             incoming: Default::default(),
             proactor: Proactor::new()?
@@ -52,9 +40,9 @@ impl LocalPool {
         self.proactor.handle()
     }
 
-    /// Get a clonable handle to the pool as a [`Spawn`].
-    pub fn spawner(&self) -> LocalSpawner {
-        LocalSpawner {
+    /// Get a clonable handle to the pool as a `Spawn`.
+    pub fn spawner(&self) -> Spawner {
+        Spawner {
             incoming: Rc::downgrade(&self.incoming),
         }
     }
@@ -62,9 +50,9 @@ impl LocalPool {
     /// Run all tasks in the pool to completion.
     ///
     /// ```
-    /// use ritsu::executor::LocalPool;
+    /// use ritsu::executor::Runtime;
     ///
-    /// let mut pool = LocalPool::new().unwrap();
+    /// let mut pool = Runtime::new().unwrap();
     ///
     /// // ... spawn some initial tasks using `spawn.spawn()` or `spawn.spawn_local()`
     ///
@@ -75,16 +63,16 @@ impl LocalPool {
     /// The function will block the calling thread until *all* tasks in the pool
     /// are complete, including any spawned while running existing tasks.
     pub fn run(&mut self) {
-        let LocalPool { pool, incoming, proactor } = self;
+        let Runtime { pool, incoming, proactor } = self;
         run_executor(proactor, |cx| poll_pool(pool, incoming, cx))
     }
 
     /// Runs all the tasks in the pool until the given future completes.
     ///
     /// ```
-    /// use ritsu::executor::LocalPool;
+    /// use ritsu::executor::Runtime;
     ///
-    /// let mut pool = LocalPool::new().unwrap();
+    /// let mut pool = Runtime::new().unwrap();
     /// # let my_app  = async {};
     ///
     /// // run tasks in the pool until `my_app` completes
@@ -97,7 +85,7 @@ impl LocalPool {
     /// one of the pool's run or poll methods. While the function is running,
     /// however, all tasks in the pool will try to make progress.
     pub fn run_until<F: Future>(&mut self, future: F) -> F::Output {
-        let LocalPool { pool, incoming, proactor } = self;
+        let Runtime { pool, incoming, proactor } = self;
 
         pin_mut!(future);
 
@@ -118,9 +106,9 @@ impl LocalPool {
 
 // Set up and run a basic single-threaded spawner loop, invoking `f` on each
 // turn.
-fn run_executor<T, F: FnMut(&mut Context<'_>) -> Poll<T>>(
+fn run_executor<T>(
     proactor: &mut Proactor<oneshot::Sender<CompletionEntry>>,
-    mut f: F
+    mut f: impl FnMut(&mut Context<'_>) -> Poll<T>
 ) -> T {
     loop {
         let waker = proactor.waker_ref();

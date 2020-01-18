@@ -1,11 +1,11 @@
 use std::io;
 use std::fs::File as StdFile;
-use ritsu::executor::LocalPool;
+use ritsu::executor::Runtime;
 use ritsu::action::fs;
 
 
 fn main() -> io::Result<()> {
-    let mut pool = LocalPool::new()?;
+    let mut pool = Runtime::new()?;
     let handle = pool.handle();
 
     let fd = StdFile::open("./Cargo.toml")?;

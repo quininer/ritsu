@@ -15,7 +15,7 @@ use std::os::unix::io::AsRawFd;
 use futures_task::{ self as task, WakerRef, Waker };
 use io_uring::opcode::{ self, types };
 use io_uring::{ squeue, cqueue, IoUring };
-use crate::waker::{ EventFd, enter };
+use crate::waker::EventFd;
 
 
 pub type SubmissionEntry = squeue::Entry;
@@ -102,7 +102,7 @@ impl<C: Ticket> Proactor<C> {
         // handle before eventfd to avoid unnecessary wakeup
         cq_drain::<C>(&mut cq);
 
-        let mut event_e = if self.eventfd.take() {
+        let mut event_e = if self.eventfd.get() {
             let op = types::Target::Fd(self.eventfd.as_raw_fd());
             let iovec_ptr = self.event_iovec.as_mut_ptr();
             let entry = opcode::Readv::new(op, iovec_ptr, 1)
@@ -113,11 +113,11 @@ impl<C: Ticket> Proactor<C> {
             None
         };
 
+        // we has events, so we don't need to wait for timeout
         let nowait = event_e.is_some()
             || cq_is_not_empty
             || dur == Some(Duration::from_secs(0));
 
-        // we has events, so we don't need to wait for timeout
         let mut timeout_e = if let Some(dur) = dur.filter(|_| !nowait) {
             self.timeout.tv_sec = dur.as_secs() as _;
             self.timeout.tv_nsec = dur.subsec_nanos() as _;
@@ -152,8 +152,10 @@ impl<C: Ticket> Proactor<C> {
 
         cq.sync();
 
-        // avoid wake self
-        enter(|| cq_drain::<C>(&mut cq));
+        cq_drain::<C>(&mut cq);
+
+        // reset eventfd
+        self.eventfd.clean();
 
         Ok(())
     }
