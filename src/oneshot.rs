@@ -48,14 +48,17 @@ impl<T> Sender<T> {
 }
 
 impl Ticket for Sender<CompletionEntry> {
+    #[inline]
     fn into_raw(self) -> *const () {
         self.0.into_raw() as _
     }
 
+    #[inline]
     unsafe fn from_raw(ptr: *const ()) -> Self {
         Sender(Weak::from_raw(ptr as *const RefCell<Inner<_>>))
     }
 
+    #[inline]
     fn set(self, item: CompletionEntry) {
         let _ = self.send(item);
     }

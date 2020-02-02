@@ -3,43 +3,41 @@ use std::rc::Rc;
 use std::pin::Pin;
 use std::cell::RefCell;
 use std::future::Future;
-use std::marker::PhantomData;
+use std::marker::{ PhantomData, Unpin };
 use std::task::{ Context, Poll };
 use std::os::unix::io::AsRawFd;
 use slab::Slab;
 use io_uring::opcode::{ self, types };
-use crate::{ oneshot, CompletionEntry, LocalHandle };
+use crate::{ oneshot, Ticket, CompletionEntry, Handle };
 
 
-pub struct File {
+pub struct File<H: Handle> {
     fd: fs::File,
     offset: i64,
-    handle: LocalHandle,
+    handle: H,
 }
 
 thread_local!{
     static BUF_ONE: RefCell<Slab<libc::iovec>> = RefCell::new(Slab::new());
 }
 
-pub enum ReadFileFuture<'a> {
+pub enum ReadFileFuture<'a, H: Handle> {
     Running {
-        fd: &'a File,
+        fd: &'a File<H>,
         bufkey: BufKey,
         buf: Vec<u8>,
-        rx: oneshot::Receiver<CompletionEntry>
+        rx: H::Wait
     },
     Error(io::Error),
     End
 }
 
-impl File {
-    pub fn from_std(fd: fs::File, handle: LocalHandle) -> File {
+impl<H: Handle> File<H> {
+    pub fn from_std(fd: fs::File, handle: H) -> File<H> {
         File { fd, handle, offset: 0 }
     }
 
-    pub fn read(&self, mut buf: Vec<u8>) -> ReadFileFuture<'_> {
-        let (tx, rx) = oneshot::channel();
-
+    pub fn read(&self, mut buf: Vec<u8>) -> ReadFileFuture<'_, H> {
         let bufptr = unsafe { mem::transmute::<_, libc::iovec>(io::IoSliceMut::new(&mut buf)) };
         let (key, entry) = BUF_ONE.with(|bufs| {
             let mut bufs = bufs.borrow_mut();
@@ -51,14 +49,18 @@ impl File {
             (BufKey(key, PhantomData), opcode::Readv::new(op, bufptr, 1).offset(self.offset))
         });
 
-        match unsafe { self.handle.push(tx, entry.build()) } {
-            Ok(_) => ReadFileFuture::Running { fd: self, bufkey: key, buf, rx },
+        match unsafe { self.handle.push(entry.build()) } {
+            Ok(rx) => ReadFileFuture::Running { fd: self, bufkey: key, buf, rx },
             Err(err) => ReadFileFuture::Error(err)
         }
     }
 }
 
-impl<'a> Future for ReadFileFuture<'a> {
+impl<'a, H> Future for ReadFileFuture<'a, H>
+where
+    H: Handle,
+    H::Wait: Unpin
+{
     type Output = io::Result<Vec<u8>>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {

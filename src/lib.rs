@@ -1,6 +1,7 @@
 #![feature(weak_into_raw)]
 
 mod waker;
+// mod alloc;
 pub mod oneshot;
 pub mod action;
 pub mod executor;
@@ -8,6 +9,7 @@ pub mod executor;
 use std::{ io, mem };
 use std::sync::Arc;
 use std::cell::RefCell;
+use std::future::Future;
 use std::time::Duration;
 use std::rc::{ Rc, Weak };
 use std::marker::PhantomData;
@@ -20,12 +22,11 @@ use crate::waker::EventFd;
 
 pub type SubmissionEntry = squeue::Entry;
 pub type CompletionEntry = cqueue::Entry;
-pub type LocalHandle = Handle<oneshot::Sender<CompletionEntry>>;
 
 const EVENT_TOKEN: u64 = 0x00;
 const TIMEOUT_TOKEN: u64 = 0x00u64.wrapping_sub(1);
 
-pub struct Proactor<C: Ticket> {
+pub struct Proactor<H: Handle> {
     ring: Rc<RefCell<IoUring>>,
     eventfd: Arc<EventFd>,
 
@@ -34,16 +35,22 @@ pub struct Proactor<C: Ticket> {
 
     event_iovec: Box<[libc::iovec; 1]>,
     timeout: Box<types::Timespec>,
-    _mark: PhantomData<C>
+    _mark: PhantomData<H>
 }
 
 #[derive(Clone)]
-pub struct Handle<C: Ticket> {
-    ring: Weak<RefCell<IoUring>>,
-    _mark: PhantomData<C>
+pub struct LocalHandle {
+    ring: Weak<RefCell<IoUring>>
 }
 
-pub trait Ticket {
+pub trait Handle {
+    type Ticket: Ticket;
+    type Wait: Future<Output = CompletionEntry>;
+
+    unsafe fn push(&self, entry: SubmissionEntry) -> io::Result<Self::Wait>;
+}
+
+pub trait Ticket: Sized {
     fn into_raw(self) -> *const ();
     unsafe fn from_raw(ptr: *const ()) -> Self;
 
@@ -61,8 +68,8 @@ fn cq_drain<C: Ticket>(cq: &mut cqueue::AvailableQueue) {
     }
 }
 
-impl<C: Ticket> Proactor<C> {
-    pub fn new() -> io::Result<Proactor<C>> {
+impl<H: Handle> Proactor<H> {
+    pub fn new() -> io::Result<Proactor<H>> {
         let ring = io_uring::IoUring::new(256)?; // TODO better number
         let mut event_buf = Box::new([0; 8]);
         let event_bufptr =
@@ -86,13 +93,6 @@ impl<C: Ticket> Proactor<C> {
         task::waker_ref(&self.eventfd)
     }
 
-    pub fn handle(&self) -> Handle<C> {
-        Handle {
-            ring: Rc::downgrade(&self.ring),
-            _mark: PhantomData
-        }
-    }
-
     pub fn park(&mut self, dur: Option<Duration>) -> io::Result<()> {
         let mut ring = self.ring.borrow_mut();
         let (submitter, sq, cq) = ring.split();
@@ -100,7 +100,7 @@ impl<C: Ticket> Proactor<C> {
         let cq_is_not_empty = cq.len() != 0;
 
         // handle before eventfd to avoid unnecessary wakeup
-        cq_drain::<C>(&mut cq);
+        cq_drain::<H::Ticket>(&mut cq);
 
         let mut event_e = if self.eventfd.get() {
             let op = types::Target::Fd(self.eventfd.as_raw_fd());
@@ -152,7 +152,7 @@ impl<C: Ticket> Proactor<C> {
 
         cq.sync();
 
-        cq_drain::<C>(&mut cq);
+        cq_drain::<H::Ticket>(&mut cq);
 
         // reset eventfd
         self.eventfd.clean();
@@ -161,14 +161,25 @@ impl<C: Ticket> Proactor<C> {
     }
 }
 
-impl<C: Ticket> Handle<C> {
-    pub unsafe fn push(&self, sender: C, entry: SubmissionEntry) -> io::Result<()> {
+impl Proactor<LocalHandle> {
+    pub fn handle(&self) -> LocalHandle {
+        LocalHandle { ring: Rc::downgrade(&self.ring) }
+    }
+}
+
+impl Handle for LocalHandle {
+    type Ticket = oneshot::Sender<CompletionEntry>;
+    type Wait = oneshot::Receiver<CompletionEntry>;
+
+    unsafe fn push(&self, entry: SubmissionEntry) -> io::Result<Self::Wait> {
         let ring = self.ring.upgrade()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "Proactor closed"))?;
 
+        let (tx, rx) = oneshot::channel();
+
         let mut ring = ring.borrow_mut();
         let (submitter, sq, cq) = ring.split();
-        let mut entry = entry.user_data(sender.into_raw() as _);
+        let mut entry = entry.user_data(tx.into_raw() as _);
 
         loop {
             let mut sq = sq.available();
@@ -181,13 +192,13 @@ impl<C: Ticket> Handle<C> {
             match submitter.submit() {
                 Ok(_) => (),
                 Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => {
-                    cq_drain::<C>(&mut cq.available());
+                    cq_drain::<Self::Ticket>(&mut cq.available());
                     submitter.submit()?;
                 },
                 Err(err) => return Err(err)
             }
         }
 
-        Ok(())
+        Ok(rx)
     }
 }

@@ -10,13 +10,13 @@ use std::task::{ Context, Poll };
 use futures_task::LocalFutureObj;
 use futures_util::pin_mut;
 use futures_util::stream::{ StreamExt, FuturesUnordered };
-use crate::{ oneshot, CompletionEntry, Proactor, LocalHandle };
+use crate::{ Proactor, Handle, LocalHandle };
 
 /// A single-threaded task pool for polling futures to completion.
-pub struct Runtime {
+pub struct Runtime<H: Handle> {
     pool: FuturesUnordered<LocalFutureObj<'static, ()>>,
     incoming: Rc<Incoming>,
-    proactor: Proactor<oneshot::Sender<CompletionEntry>>
+    proactor: Proactor<H>
 }
 
 #[derive(Clone, Debug)]
@@ -26,18 +26,14 @@ pub struct Spawner {
 
 type Incoming = RefCell<Vec<LocalFutureObj<'static, ()>>>;
 
-impl Runtime {
+impl<H: Handle> Runtime<H> {
     /// Create a new, empty pool of tasks.
-    pub fn new() -> io::Result<Runtime> {
+    pub fn new() -> io::Result<Runtime<H>> {
         Ok(Runtime {
             pool: FuturesUnordered::new(),
             incoming: Default::default(),
             proactor: Proactor::new()?
         })
-    }
-
-    pub fn handle(&self) -> LocalHandle {
-        self.proactor.handle()
     }
 
     /// Get a clonable handle to the pool as a `Spawn`.
@@ -104,10 +100,16 @@ impl Runtime {
     }
 }
 
+impl Runtime<LocalHandle> {
+    pub fn handle(&self) -> LocalHandle {
+        self.proactor.handle()
+    }
+}
+
 // Set up and run a basic single-threaded spawner loop, invoking `f` on each
 // turn.
-fn run_executor<T>(
-    proactor: &mut Proactor<oneshot::Sender<CompletionEntry>>,
+fn run_executor<T, H: Handle>(
+    proactor: &mut Proactor<H>,
     mut f: impl FnMut(&mut Context<'_>) -> Poll<T>
 ) -> T {
     loop {
