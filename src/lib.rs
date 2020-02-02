@@ -1,7 +1,9 @@
 #![feature(weak_into_raw)]
 
+#[macro_use]
+mod alloc;
+
 mod waker;
-// mod alloc;
 pub mod oneshot;
 pub mod action;
 pub mod executor;
