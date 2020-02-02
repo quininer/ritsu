@@ -39,8 +39,6 @@ impl ArcWake for EventFd {
         if !arc_self.flag.swap(true, atomic::Ordering::Acquire) {
             let _ = (&arc_self.fd).write(&0x1u64.to_le_bytes());
         }
-
-        // TODO log fail
     }
 }
 

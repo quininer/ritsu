@@ -9,7 +9,7 @@ fn main() -> io::Result<()> {
     let handle = pool.handle();
 
     let fd = StdFile::open("./Cargo.toml")?;
-    let fd = fs::File::from_std(fd, handle);
+    let mut fd = fs::File::from_std(fd, handle);
 
     let fut = async move {
         let buf = fd.read(Vec::with_capacity(24)).await?;
