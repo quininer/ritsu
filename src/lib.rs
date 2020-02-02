@@ -1,7 +1,4 @@
-#![feature(weak_into_raw)]
-
-#[macro_use]
-mod alloc;
+#![feature(weak_into_raw, vec_into_raw_parts)]
 
 mod waker;
 pub mod oneshot;

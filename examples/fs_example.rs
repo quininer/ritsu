@@ -12,7 +12,7 @@ fn main() -> io::Result<()> {
     let fd = fs::File::from_std(fd, handle);
 
     let fut = async move {
-        let buf = fd.read(vec![0; 24]).await?;
+        let buf = fd.read(Vec::with_capacity(24)).await?;
 
         println!("{}", String::from_utf8_lossy(&buf));
 
