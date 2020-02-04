@@ -47,8 +47,9 @@ impl<H: Handle> Runtime<H> {
     ///
     /// ```
     /// use ritsu::executor::Runtime;
+    /// use ritsu::LocalHandle;
     ///
-    /// let mut pool = Runtime::new().unwrap();
+    /// let mut pool: Runtime<LocalHandle> = Runtime::new().unwrap();
     ///
     /// // ... spawn some initial tasks using `spawn.spawn()` or `spawn.spawn_local()`
     ///
@@ -67,8 +68,9 @@ impl<H: Handle> Runtime<H> {
     ///
     /// ```
     /// use ritsu::executor::Runtime;
+    /// use ritsu::LocalHandle;
     ///
-    /// let mut pool = Runtime::new().unwrap();
+    /// let mut pool: Runtime<LocalHandle> = Runtime::new().unwrap();
     /// # let my_app  = async {};
     ///
     /// // run tasks in the pool until `my_app` completes
@@ -103,6 +105,14 @@ impl<H: Handle> Runtime<H> {
 impl Runtime<LocalHandle> {
     pub fn handle(&self) -> LocalHandle {
         self.proactor.handle()
+    }
+}
+
+impl Spawner {
+    pub fn spawn<F: Future<Output = ()> + 'static>(&self, fut: F) {
+        if let Some(incoming) = self.incoming.upgrade() {
+            incoming.borrow_mut().push(LocalFutureObj::from(Box::pin(fut)));
+        }
     }
 }
 

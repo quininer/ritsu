@@ -1,8 +1,9 @@
 use std::{ fs, io };
 use std::marker::Unpin;
 use std::os::unix::io::AsRawFd;
-use bytes::{ Buf, BufMut, buf::IoSliceMut };
+use bytes::{ Buf, BufMut };
 use io_uring::opcode::{ self, types };
+use crate::util::{ iovecs, iovecs_mut };
 use crate::Handle;
 
 
@@ -18,65 +19,62 @@ impl<H: Handle> File<H> {
     }
 
     pub async fn read<B: BufMut + Unpin + 'static>(&mut self, mut buf: B) -> io::Result<B> {
-        let mut bufs: Vec<libc::iovec> = unsafe {
-            let mut bufs: Vec<IoSliceMut> = Vec::with_capacity(32);
-            bufs.set_len(bufs.capacity());
+        let mut bufs = iovecs_mut(&mut buf);
 
-            let n = buf.bytes_vectored_mut(&mut bufs);
-            bufs.set_len(n);
+        let op = types::Target::Fd(self.fd.as_raw_fd());
+        let entry = opcode::Readv::new(op, bufs.as_mut_ptr(), bufs.len() as _)
+            .offset(self.offset)
+            .build();
 
-            let (ptr, len, cap) = bufs.into_raw_parts();
-            Vec::from_raw_parts(ptr as *mut _, len, cap)
-        };
+        let wait = unsafe { self.handle.push(entry) };
+        let ret = wait?.await.result();
+        if ret >= 0 {
+            self.offset += ret as i64;
+            drop(bufs);
 
-        let wait = unsafe {
-            let op = types::Target::Fd(self.fd.as_raw_fd());
-            let entry = opcode::Readv::new(op, bufs.as_mut_ptr(), bufs.len() as _)
-                .offset(self.offset)
-                .build();
-            self.handle.push(entry)?
-        };
-
-        let res = wait.await.result();
-        drop(bufs);
-        if res >= 0 {
             unsafe {
-                buf.advance_mut(res as _);
+                buf.advance_mut(ret as _);
             }
 
             Ok(buf)
         } else {
-            Err(io::Error::from_raw_os_error(-res))
+            Err(io::Error::from_raw_os_error(-ret))
         }
     }
 
     pub async fn write<B: Buf + Unpin + 'static>(&mut self, mut buf: B) -> io::Result<B> {
-        let mut bufs: Vec<libc::iovec> = unsafe {
-            let mut bufs: Vec<io::IoSlice> = Vec::with_capacity(32);
-            bufs.set_len(bufs.capacity());
+        let mut bufs = iovecs(&buf);
 
-            let n = buf.bytes_vectored(&mut bufs);
-            bufs.set_len(n);
+        let op = types::Target::Fd(self.fd.as_raw_fd());
+        let entry = opcode::Writev::new(op, bufs.as_mut_ptr(), bufs.len() as _)
+            .offset(self.offset)
+            .build();
 
-            let (ptr, len, cap) = bufs.into_raw_parts();
-            Vec::from_raw_parts(ptr as *mut _, len, cap)
-        };
-
-        let wait = unsafe {
-            let op = types::Target::Fd(self.fd.as_raw_fd());
-            let entry = opcode::Writev::new(op, bufs.as_mut_ptr(), bufs.len() as _)
-                .offset(self.offset)
-                .build();
-            self.handle.push(entry)?
-        };
-
-        let res = wait.await.result();
-        drop(bufs);
-        if res >= 0 {
-            buf.advance(res as _);
+        let wait = unsafe { self.handle.push(entry) };
+        let ret = wait?.await.result();
+        if ret >= 0 {
+            self.offset += ret as i64;
+            drop(bufs);
+            buf.advance(ret as _);
             Ok(buf)
         } else {
-            Err(io::Error::from_raw_os_error(-res))
+            Err(io::Error::from_raw_os_error(-ret))
         }
     }
+
+    pub async fn fsync(&mut self) -> io::Result<()> {
+        let op = types::Target::Fd(self.fd.as_raw_fd());
+        let entry = opcode::Fsync::new(op)
+            .build();
+
+        let wait = unsafe { self.handle.push(entry) };
+        let ret = wait?.await.result();
+        if ret >= 0 {
+            Ok(())
+        } else {
+            Err(io::Error::from_raw_os_error(-ret))
+        }
+    }
+
+    // TODO fdatasync/sync_file_range
 }

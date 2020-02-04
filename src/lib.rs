@@ -1,5 +1,6 @@
 #![feature(weak_into_raw, vec_into_raw_parts)]
 
+mod util;
 mod waker;
 pub mod oneshot;
 pub mod action;
@@ -42,7 +43,7 @@ pub struct LocalHandle {
     ring: Weak<RefCell<IoUring>>
 }
 
-pub trait Handle {
+pub trait Handle: Clone {
     type Ticket: Ticket;
     type Wait: Future<Output = CompletionEntry>;
 

@@ -12,7 +12,11 @@ futures-task = "0.3"
 futures-util = "0.3"
 slab = "*"
 bytes = "0.5"
+socket2 = "*"
 async-trait = "*"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 io-uring = "0.3"
+
+[dev-dependencies]
+anyhow = "*"
