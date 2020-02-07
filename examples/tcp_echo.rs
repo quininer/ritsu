@@ -17,19 +17,25 @@ fn main() -> io::Result<()> {
         loop {
             let (mut stream, addr) = listener.accept().await?;
 
-            println!("accept: {:?}", addr);
+            println!("accept: {}", addr);
 
             let copy_fut = async move {
                 let mut buf = BytesMut::with_capacity(1024);
+                let mut count = 0;
 
                 loop {
+                    stream.ready(tcp::Poll::IN).await?;
                     let read_buf = stream.read(buf).await?;
+                    count += read_buf.len();
 
                     if read_buf.is_empty() {
+                        println!("connect {} count: {}", addr, count);
                         break
                     }
 
+                    stream.ready(tcp::Poll::OUT).await?;
                     let mut read_buf = stream.write(read_buf).await?;
+
                     read_buf.clear();
                     buf = read_buf;
                 }

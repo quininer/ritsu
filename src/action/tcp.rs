@@ -1,6 +1,7 @@
 use std::{ io, net, mem };
 use std::marker::Unpin;
 use std::os::unix::io::{ AsRawFd, FromRawFd };
+use bitflags::bitflags;
 use bytes::{ Buf, BufMut };
 use socket2::{ SockAddr, Socket, Domain, Type, Protocol };
 use io_uring::opcode::{ self, types };
@@ -16,6 +17,15 @@ pub struct TcpListener<H: Handle> {
 pub struct TcpStream<H: Handle> {
     fd: net::TcpStream,
     handle: H
+}
+
+bitflags!{
+    pub struct Poll: i16 {
+        const IN = libc::POLLIN;
+        const OUT = libc::POLLOUT;
+
+        // TODO
+    }
 }
 
 impl<H: Handle> TcpListener<H> {
@@ -86,6 +96,22 @@ impl<H: Handle> TcpStream<H> {
                 fd: stream.into_tcp_stream(),
                 handle
             })
+        } else {
+            Err(io::Error::from_raw_os_error(-ret))
+        }
+    }
+
+    pub async fn ready(&self, poll: Poll) -> io::Result<()> {
+        let entry = opcode::PollAdd::new(
+            types::Target::Fd(self.fd.as_raw_fd()),
+            poll.bits()
+        )
+            .build();
+
+        let wait = unsafe { self.handle.push(entry) };
+        let ret = wait?.await.result();
+        if ret >= 0 {
+            Ok(())
         } else {
             Err(io::Error::from_raw_os_error(-ret))
         }

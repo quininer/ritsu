@@ -14,9 +14,10 @@ slab = "*"
 bytes = "0.5"
 socket2 = "*"
 async-trait = "*"
+bitflags = "1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-io-uring = "0.3"
+io-uring = "0.3.1"
 
 [dev-dependencies]
 anyhow = "*"
