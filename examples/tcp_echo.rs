@@ -1,4 +1,6 @@
 use std::{ io, net };
+use std::rc::Rc;
+use std::cell::RefCell;
 use futures_util::future::TryFutureExt;
 use bytes::BytesMut;
 use ritsu::executor::Runtime;
@@ -10,34 +12,47 @@ fn main() -> io::Result<()> {
     let spawner = pool.spawner();
     let handle = pool.handle();
 
+    let bufpool = Rc::new(RefCell::new(vec![BytesMut::with_capacity(2048); 32]));
     let listener = net::TcpListener::bind("127.0.0.1:1234")?;
     let mut listener = tcp::TcpListener::from_std(listener, handle);
 
     let fut = async move {
         loop {
             let (mut stream, addr) = listener.accept().await?;
+            let bufpool = bufpool.clone();
 
             println!("accept: {}", addr);
 
             let copy_fut = async move {
-                let mut buf = BytesMut::with_capacity(1024);
                 let mut count = 0;
 
                 loop {
                     stream.ready(tcp::Poll::IN).await?;
-                    let read_buf = stream.read(buf).await?;
-                    count += read_buf.len();
 
-                    if read_buf.is_empty() {
+                    let mut buf = bufpool
+                        .borrow_mut()
+                        .pop()
+                        .unwrap_or_else(|| BytesMut::with_capacity(2048));
+                    buf.reserve(2048);
+
+                    let buf = stream.read(buf).await?;
+
+                    if buf.is_empty() {
                         println!("connect {} count: {}", addr, count);
+                        bufpool
+                            .borrow_mut()
+                            .push(buf);
                         break
                     }
 
-                    stream.ready(tcp::Poll::OUT).await?;
-                    let mut read_buf = stream.write(read_buf).await?;
+                    count += buf.len();
 
-                    read_buf.clear();
-                    buf = read_buf;
+                    let mut buf = stream.write(buf).await?;
+
+                    buf.clear();
+                    bufpool
+                        .borrow_mut()
+                        .push(buf);
                 }
 
                 Ok(()) as io::Result<()>
