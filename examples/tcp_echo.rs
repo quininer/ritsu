@@ -2,7 +2,7 @@ use std::{ io, net };
 use std::rc::Rc;
 use std::cell::RefCell;
 use futures_util::future::TryFutureExt;
-use bytes::BytesMut;
+use bytes::{ Buf, BytesMut };
 use ritsu::executor::Runtime;
 use ritsu::action::tcp;
 
@@ -12,7 +12,7 @@ fn main() -> io::Result<()> {
     let spawner = pool.spawner();
     let handle = pool.handle();
 
-    let bufpool = Rc::new(RefCell::new(vec![BytesMut::with_capacity(2048); 32]));
+    let bufpool = Rc::new(RefCell::new(Vec::with_capacity(64)));
     let listener = net::TcpListener::bind("127.0.0.1:1234")?;
     let mut listener = tcp::TcpListener::from_std(listener, handle);
 
@@ -32,13 +32,14 @@ fn main() -> io::Result<()> {
                     let mut buf = bufpool
                         .borrow_mut()
                         .pop()
-                        .unwrap_or_else(|| BytesMut::with_capacity(2048));
-                    buf.reserve(2048);
+                        .unwrap_or_else(BytesMut::new);
+                    if buf.capacity() < 2048 {
+                        buf.reserve(2048 - buf.capacity());
+                    }
 
-                    let buf = stream.read(buf).await?;
+                    let mut buf = stream.read(buf).await?;
 
                     if buf.is_empty() {
-                        println!("connect {} count: {}", addr, count);
                         bufpool
                             .borrow_mut()
                             .push(buf);
@@ -47,13 +48,17 @@ fn main() -> io::Result<()> {
 
                     count += buf.len();
 
-                    let mut buf = stream.write(buf).await?;
+                    while buf.has_remaining() {
+                        buf = stream.write(buf).await?;
+                    }
 
                     buf.clear();
                     bufpool
                         .borrow_mut()
                         .push(buf);
                 }
+
+                println!("connect {} count: {}", addr, count);
 
                 Ok(()) as io::Result<()>
             };

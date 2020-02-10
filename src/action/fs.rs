@@ -9,27 +9,25 @@ use crate::Handle;
 
 pub struct File<H: Handle> {
     fd: fs::File,
-    offset: i64,
     handle: H,
 }
 
 impl<H: Handle> File<H> {
     pub fn from_std(fd: fs::File, handle: H) -> File<H> {
-        File { fd, handle, offset: 0 }
+        File { fd, handle }
     }
 
-    pub async fn read<B: BufMut + Unpin + 'static>(&mut self, mut buf: B) -> io::Result<B> {
+    pub async fn read_at<B: BufMut + Unpin + 'static>(&mut self, offset: i64, mut buf: B) -> io::Result<B> {
         let mut bufs = iovecs_mut(&mut buf);
 
         let op = types::Target::Fd(self.fd.as_raw_fd());
         let entry = opcode::Readv::new(op, bufs.as_mut_ptr(), bufs.len() as _)
-            .offset(self.offset)
+            .offset(offset)
             .build();
 
         let wait = unsafe { self.handle.push(entry) };
         let ret = wait?.await.result();
         if ret >= 0 {
-            self.offset += ret as i64;
             drop(bufs);
 
             unsafe {
@@ -42,18 +40,17 @@ impl<H: Handle> File<H> {
         }
     }
 
-    pub async fn write<B: Buf + Unpin + 'static>(&mut self, mut buf: B) -> io::Result<B> {
+    pub async fn write<B: Buf + Unpin + 'static>(&mut self, offset: i64, mut buf: B) -> io::Result<B> {
         let mut bufs = iovecs(&buf);
 
         let op = types::Target::Fd(self.fd.as_raw_fd());
         let entry = opcode::Writev::new(op, bufs.as_mut_ptr(), bufs.len() as _)
-            .offset(self.offset)
+            .offset(offset)
             .build();
 
         let wait = unsafe { self.handle.push(entry) };
         let ret = wait?.await.result();
         if ret >= 0 {
-            self.offset += ret as i64;
             drop(bufs);
             buf.advance(ret as _);
             Ok(buf)
