@@ -10,7 +10,8 @@ use std::task::{ Context, Poll };
 use futures_task::LocalFutureObj;
 use futures_util::pin_mut;
 use futures_util::stream::{ StreamExt, FuturesUnordered };
-use crate::{ Proactor, Handle, LocalHandle };
+use crate::{ Proactor, Handle };
+use crate::unsync;
 
 /// A single-threaded task pool for polling futures to completion.
 pub struct Runtime<H: Handle> {
@@ -47,9 +48,9 @@ impl<H: Handle> Runtime<H> {
     ///
     /// ```
     /// use ritsu::executor::Runtime;
-    /// use ritsu::LocalHandle;
+    /// use ritsu::unsync;
     ///
-    /// let mut pool: Runtime<LocalHandle> = Runtime::new().unwrap();
+    /// let mut pool: Runtime<unsync::Handle> = Runtime::new().unwrap();
     ///
     /// // ... spawn some initial tasks using `spawn.spawn()` or `spawn.spawn_local()`
     ///
@@ -68,9 +69,9 @@ impl<H: Handle> Runtime<H> {
     ///
     /// ```
     /// use ritsu::executor::Runtime;
-    /// use ritsu::LocalHandle;
+    /// use ritsu::unsycn;
     ///
-    /// let mut pool: Runtime<LocalHandle> = Runtime::new().unwrap();
+    /// let mut pool: Runtime<unsync::Handle> = Runtime::new().unwrap();
     /// # let my_app  = async {};
     ///
     /// // run tasks in the pool until `my_app` completes
@@ -102,8 +103,8 @@ impl<H: Handle> Runtime<H> {
     }
 }
 
-impl Runtime<LocalHandle> {
-    pub fn handle(&self) -> LocalHandle {
+impl Runtime<unsync::Handle> {
+    pub fn handle(&self) -> unsync::Handle {
         self.proactor.handle()
     }
 }

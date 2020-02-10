@@ -12,14 +12,19 @@ use crate::Handle;
 
 bitflags!{
     pub struct Poll: i16 {
-        const IN = libc::POLLIN;
-        const OUT = libc::POLLOUT;
+        const READABLE = libc::POLLIN;
+        const WRITABLE = libc::POLLOUT;
 
         // TODO
     }
 }
 
 pub trait ReadyExt: AsHandle + AsRawFd {
+    fn ready(&self, poll: Poll) -> ReadyFuture<Self::Handle>;
+}
+
+impl<T: AsHandle + AsRawFd> ReadyExt for T {
+    #[inline]
     fn ready(&self, poll: Poll) -> ReadyFuture<Self::Handle> {
         let fd = self.as_raw_fd();
         let handle = self.as_handle();
@@ -27,8 +32,6 @@ pub trait ReadyExt: AsHandle + AsRawFd {
         ReadyFuture::new(fd, poll, handle)
     }
 }
-
-impl<T: AsHandle + AsRawFd> ReadyExt for T {}
 
 pub struct ReadyFuture<H: Handle>(Inner<H>);
 

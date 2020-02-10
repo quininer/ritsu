@@ -28,7 +28,7 @@ fn main() -> io::Result<()> {
                 let mut count = 0;
 
                 loop {
-                    stream.ready(Poll::IN).await?;
+                    stream.ready(Poll::READABLE).await?;
 
                     let mut buf = bufpool
                         .borrow_mut()

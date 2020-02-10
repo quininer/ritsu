@@ -2,16 +2,16 @@
 
 mod util;
 mod waker;
-pub mod oneshot;
+pub mod unsync;
 pub mod action;
 pub mod executor;
 
 use std::{ io, mem };
+use std::rc::Rc;
 use std::sync::Arc;
 use std::cell::RefCell;
 use std::future::Future;
 use std::time::Duration;
-use std::rc::{ Rc, Weak };
 use std::marker::PhantomData;
 use std::os::unix::io::AsRawFd;
 use futures_task::{ self as task, WakerRef, Waker };
@@ -36,11 +36,6 @@ pub struct Proactor<H: Handle> {
     event_iovec: Box<[libc::iovec; 1]>,
     timeout: Box<types::Timespec>,
     _mark: PhantomData<H>
-}
-
-#[derive(Clone)]
-pub struct LocalHandle {
-    ring: Weak<RefCell<IoUring>>
 }
 
 pub trait Handle: Clone {
@@ -158,47 +153,5 @@ impl<H: Handle> Proactor<H> {
         self.eventfd.clean();
 
         Ok(())
-    }
-}
-
-impl Proactor<LocalHandle> {
-    pub fn handle(&self) -> LocalHandle {
-        LocalHandle { ring: Rc::downgrade(&self.ring) }
-    }
-}
-
-impl Handle for LocalHandle {
-    type Ticket = oneshot::Sender<CompletionEntry>;
-    type Wait = oneshot::Receiver<CompletionEntry>;
-
-    unsafe fn push(&self, entry: SubmissionEntry) -> io::Result<Self::Wait> {
-        let ring = self.ring.upgrade()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "Proactor closed"))?;
-
-        let (tx, rx) = oneshot::channel();
-
-        let mut ring = ring.borrow_mut();
-        let (submitter, sq, cq) = ring.split();
-        let mut entry = entry.user_data(tx.into_raw() as _);
-
-        loop {
-            let mut sq = sq.available();
-
-            match sq.push(entry) {
-                Ok(_) => break,
-                Err(e) => entry = e
-            }
-
-            match submitter.submit() {
-                Ok(_) => (),
-                Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => {
-                    cq_drain::<Self::Ticket>(&mut cq.available());
-                    submitter.submit()?;
-                },
-                Err(err) => return Err(err)
-            }
-        }
-
-        Ok(rx)
     }
 }
