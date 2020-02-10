@@ -5,6 +5,7 @@ use futures_util::future::TryFutureExt;
 use bytes::{ Buf, BytesMut };
 use ritsu::executor::Runtime;
 use ritsu::action::tcp;
+use ritsu::action::poll::{ Poll, ReadyExt };
 
 
 fn main() -> io::Result<()> {
@@ -27,7 +28,7 @@ fn main() -> io::Result<()> {
                 let mut count = 0;
 
                 loop {
-                    stream.ready(tcp::Poll::IN).await?;
+                    stream.ready(Poll::IN).await?;
 
                     let mut buf = bufpool
                         .borrow_mut()

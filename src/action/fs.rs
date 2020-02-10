@@ -1,9 +1,10 @@
 use std::{ fs, io };
 use std::marker::Unpin;
-use std::os::unix::io::AsRawFd;
+use std::os::unix::io::{ AsRawFd, RawFd };
 use bytes::{ Buf, BufMut };
 use io_uring::opcode::{ self, types };
 use crate::util::{ iovecs, iovecs_mut };
+use crate::action::AsHandle;
 use crate::Handle;
 
 
@@ -40,7 +41,7 @@ impl<H: Handle> File<H> {
         }
     }
 
-    pub async fn write<B: Buf + Unpin + 'static>(&mut self, offset: i64, mut buf: B) -> io::Result<B> {
+    pub async fn write_at<B: Buf + Unpin + 'static>(&mut self, offset: i64, mut buf: B) -> io::Result<B> {
         let mut bufs = iovecs(&buf);
 
         let op = types::Target::Fd(self.fd.as_raw_fd());
@@ -74,4 +75,20 @@ impl<H: Handle> File<H> {
     }
 
     // TODO fdatasync/sync_file_range
+}
+
+impl<H: Handle> AsHandle for File<H> {
+    type Handle = H;
+
+    #[inline]
+    fn as_handle(&self) -> &Self::Handle {
+        &self.handle
+    }
+}
+
+impl<H: Handle> AsRawFd for File<H> {
+    #[inline]
+    fn as_raw_fd(&self) -> RawFd {
+        self.fd.as_raw_fd()
+    }
 }

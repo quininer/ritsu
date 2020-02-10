@@ -1,11 +1,11 @@
 use std::{ io, net, mem };
 use std::marker::Unpin;
-use std::os::unix::io::{ AsRawFd, FromRawFd };
-use bitflags::bitflags;
+use std::os::unix::io::{ AsRawFd, FromRawFd, RawFd };
 use bytes::{ Buf, BufMut };
 use socket2::{ SockAddr, Socket, Domain, Type, Protocol };
 use io_uring::opcode::{ self, types };
 use crate::util::{ iovecs, iovecs_mut };
+use crate::action::AsHandle;
 use crate::Handle;
 
 
@@ -17,15 +17,6 @@ pub struct TcpListener<H: Handle> {
 pub struct TcpStream<H: Handle> {
     fd: net::TcpStream,
     handle: H
-}
-
-bitflags!{
-    pub struct Poll: i16 {
-        const IN = libc::POLLIN;
-        const OUT = libc::POLLOUT;
-
-        // TODO
-    }
 }
 
 impl<H: Handle> TcpListener<H> {
@@ -101,22 +92,6 @@ impl<H: Handle> TcpStream<H> {
         }
     }
 
-    pub async fn ready(&self, poll: Poll) -> io::Result<()> {
-        let entry = opcode::PollAdd::new(
-            types::Target::Fd(self.fd.as_raw_fd()),
-            poll.bits()
-        )
-            .build();
-
-        let wait = unsafe { self.handle.push(entry) };
-        let ret = wait?.await.result();
-        if ret >= 0 {
-            Ok(())
-        } else {
-            Err(io::Error::from_raw_os_error(-ret))
-        }
-    }
-
     pub async fn read<B: BufMut + Unpin + 'static>(&mut self, mut buf: B) -> io::Result<B> {
         let mut bufs = iovecs_mut(&mut buf);
 
@@ -154,5 +129,37 @@ impl<H: Handle> TcpStream<H> {
         } else {
             Err(io::Error::from_raw_os_error(-ret))
         }
+    }
+}
+
+impl<H: Handle> AsHandle for TcpListener<H> {
+    type Handle = H;
+
+    #[inline]
+    fn as_handle(&self) -> &Self::Handle {
+        &self.handle
+    }
+}
+
+impl<H: Handle> AsHandle for TcpStream<H> {
+    type Handle = H;
+
+    #[inline]
+    fn as_handle(&self) -> &Self::Handle {
+        &self.handle
+    }
+}
+
+impl<H: Handle> AsRawFd for TcpListener<H> {
+    #[inline]
+    fn as_raw_fd(&self) -> RawFd {
+        self.fd.as_raw_fd()
+    }
+}
+
+impl<H: Handle> AsRawFd for TcpStream<H> {
+    #[inline]
+    fn as_raw_fd(&self) -> RawFd {
+        self.fd.as_raw_fd()
     }
 }
