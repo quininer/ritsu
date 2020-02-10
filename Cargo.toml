@@ -12,15 +12,13 @@ edition = "2018"
 libc = "0.2"
 futures-task = "0.3"
 futures-util = "0.3"
-futures-channel = "0.3"
-slab = "*"
+bitflags = "1"
 bytes = "0.5"
 socket2 = "*"
-async-trait = "*"
-bitflags = "1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 io-uring = "0.3.1"
 
 [dev-dependencies]
+slab = "*"
 anyhow = "*"

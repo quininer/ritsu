@@ -7,13 +7,13 @@ pub mod action;
 pub mod executor;
 
 use std::{ io, mem };
-use std::rc::Rc;
 use std::sync::Arc;
 use std::cell::RefCell;
 use std::future::Future;
 use std::time::Duration;
 use std::marker::PhantomData;
 use std::os::unix::io::AsRawFd;
+use std::rc::{ Rc, Weak };
 use futures_task::{ self as task, WakerRef, Waker };
 use io_uring::opcode::{ self, types };
 use io_uring::{ squeue, cqueue, IoUring };
@@ -40,8 +40,11 @@ pub struct Proactor<H: Handle> {
 
 pub trait Handle: Clone {
     type Ticket: Ticket;
+
+    // TODO Output = Result<CE> ?
     type Wait: Future<Output = CompletionEntry>;
 
+    // TODO Just Self::Wait ?
     unsafe fn push(&self, entry: SubmissionEntry) -> io::Result<Self::Wait>;
 }
 
@@ -86,6 +89,10 @@ impl<H: Handle> Proactor<H> {
 
     pub fn waker_ref(&self) -> WakerRef {
         task::waker_ref(&self.eventfd)
+    }
+
+    pub fn as_raw_handle(&self) -> RawHandle {
+        RawHandle(Rc::downgrade(&self.ring))
     }
 
     pub fn park(&mut self, dur: Option<Duration>) -> io::Result<()> {
@@ -151,6 +158,41 @@ impl<H: Handle> Proactor<H> {
 
         // reset eventfd
         self.eventfd.clean();
+
+        Ok(())
+    }
+}
+
+
+#[derive(Clone)]
+pub struct RawHandle(Weak<RefCell<IoUring>>);
+
+impl RawHandle {
+    #[inline]
+    pub unsafe fn push<T: Ticket>(&self, mut entry: SubmissionEntry) -> io::Result<()> {
+        let ring = self.0.upgrade()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "Proactor closed"))?;
+
+        let mut ring = ring.borrow_mut();
+        let (submitter, sq, cq) = ring.split();
+
+        loop {
+            let mut sq = sq.available();
+
+            match sq.push(entry) {
+                Ok(_) => break,
+                Err(e) => entry = e
+            }
+
+            match submitter.submit() {
+                Ok(_) => (),
+                Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => {
+                    cq_drain::<T>(&mut cq.available());
+                    submitter.submit()?;
+                },
+                Err(err) => return Err(err)
+            }
+        }
 
         Ok(())
     }
