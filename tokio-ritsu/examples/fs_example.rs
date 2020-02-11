@@ -7,6 +7,7 @@ use ritsu::action::fs;
 use tokio_ritsu::Handle;
 
 
+
 fn main() -> io::Result<()> {
     let mut pool = Runtime::<Handle>::new().unwrap();
     let (driver, handle) = Handle::from(pool.raw_handle());
@@ -21,7 +22,12 @@ fn main() -> io::Result<()> {
         let mut fd = fs::File::from_std(fd, handle);
 
         runtime.block_on(async {
-            let buf = fd.read_at(0, Vec::with_capacity(30)).await.unwrap();
+            let fut = fd.read_at(0, Vec::with_capacity(30));
+
+            fn is_send_sync<T: Send + Sync>(_: &T) {}
+            is_send_sync(&fut);
+
+            let buf = fut.await.unwrap();
 
             println!("{}", String::from_utf8_lossy(&buf));
         });

@@ -96,7 +96,7 @@ impl<H: Handle> TcpStream<H> {
         let mut bufs = iovecs_mut(&mut buf);
 
         let op = types::Target::Fd(self.fd.as_raw_fd());
-        let entry = opcode::Readv::new(op, bufs.as_mut_ptr(), bufs.len() as _)
+        let entry = opcode::Readv::new(op, bufs.as_mut_ptr() as *mut libc::iovec, bufs.len() as _)
             .build();
 
         let wait = unsafe { self.handle.push(entry) };
@@ -117,7 +117,7 @@ impl<H: Handle> TcpStream<H> {
         let mut bufs = iovecs(&buf);
 
         let op = types::Target::Fd(self.fd.as_raw_fd());
-        let entry = opcode::Writev::new(op, bufs.as_mut_ptr(), bufs.len() as _)
+        let entry = opcode::Writev::new(op, bufs.as_mut_ptr() as *const libc::iovec, bufs.len() as _)
             .build();
 
         let wait = unsafe { self.handle.push(entry) };
