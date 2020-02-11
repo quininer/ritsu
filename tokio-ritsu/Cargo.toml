@@ -1,0 +1,16 @@
+[package]
+name = "tokio-ritsu"
+version = "0.1.0"
+authors = ["quininer <quininer@live.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { path = "../../fork/tokio/tokio", features = [ "sync" ] }
+ritsu = { path = ".." }
+
+[dev-dependencies]
+tokio = { path = "../../fork/tokio/tokio", features = [ "rt-core" ] }
+lazy_static = "*"
+anyhow = "*"

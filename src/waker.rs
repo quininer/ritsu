@@ -17,7 +17,7 @@ impl EventFd {
 
         if fd != -1 {
             Ok(EventFd {
-                flag: atomic::AtomicBool::new(false),
+                flag: atomic::AtomicBool::new(true),
                 fd: unsafe { File::from_raw_fd(fd) }
             })
         } else {
