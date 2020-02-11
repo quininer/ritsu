@@ -19,13 +19,13 @@ pub struct Handle {
 type Driver = impl Future<Output = io::Result<()>>;
 
 impl Handle {
-    pub fn from(handle: RawHandle) -> (Driver, Handle) {
+    pub fn from(handle: RawHandle<Self>) -> (Driver, Handle) {
         let (tx, mut rx) = mpsc::unbounded_channel();
 
         let fut = async move {
             while let Some(sqe) = rx.recv().await {
                 unsafe {
-                    handle.push::<oneshot::Sender>(sqe)?;
+                    handle.push(sqe)?;
                 }
             }
 

@@ -91,8 +91,11 @@ impl<H: Handle> Proactor<H> {
         task::waker_ref(&self.eventfd)
     }
 
-    pub fn as_raw_handle(&self) -> RawHandle {
-        RawHandle(Rc::downgrade(&self.ring))
+    pub fn as_raw_handle(&self) -> RawHandle<H> {
+        RawHandle {
+            ring: Rc::downgrade(&self.ring),
+            _mark: PhantomData
+        }
     }
 
     pub fn park(&mut self, dur: Option<Duration>) -> io::Result<()> {
@@ -165,12 +168,15 @@ impl<H: Handle> Proactor<H> {
 
 
 #[derive(Clone)]
-pub struct RawHandle(Weak<RefCell<IoUring>>);
+pub struct RawHandle<H> {
+    ring: Weak<RefCell<IoUring>>,
+    _mark: PhantomData<H>
+}
 
-impl RawHandle {
+impl<H: Handle> RawHandle<H> {
     #[inline]
-    pub unsafe fn push<T: Ticket>(&self, mut entry: SubmissionEntry) -> io::Result<()> {
-        let ring = self.0.upgrade()
+    pub unsafe fn push(&self, mut entry: SubmissionEntry) -> io::Result<()> {
+        let ring = self.ring.upgrade()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "Proactor closed"))?;
 
         let mut ring = ring.borrow_mut();
@@ -187,7 +193,7 @@ impl RawHandle {
             match submitter.submit() {
                 Ok(_) => (),
                 Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => {
-                    cq_drain::<T>(&mut cq.available());
+                    cq_drain::<H::Ticket>(&mut cq.available());
                     submitter.submit()?;
                 },
                 Err(err) => return Err(err)

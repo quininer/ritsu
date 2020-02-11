@@ -11,7 +11,7 @@ use crate::{
 
 #[derive(Clone)]
 pub struct Handle {
-    handle: RawHandle,
+    handle: RawHandle<Self>,
 }
 
 impl Proactor<Handle> {
@@ -27,7 +27,7 @@ impl TaskHandle for Handle {
     unsafe fn push(&self, entry: SubmissionEntry) -> io::Result<Self::Wait> {
         let (tx, rx) = oneshot::channel();
 
-        self.handle.push::<Self::Ticket>(entry.user_data(tx.into_raw() as _))?;
+        self.handle.push(entry.user_data(tx.into_raw() as _))?;
 
         Ok(rx)
     }

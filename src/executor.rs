@@ -110,7 +110,7 @@ impl Runtime<unsync::Handle> {
 }
 
 impl<H: Handle> Runtime<H> {
-    pub fn raw_handle(&self) -> RawHandle {
+    pub fn raw_handle(&self) -> RawHandle<H> {
         self.proactor.as_raw_handle()
     }
 }
