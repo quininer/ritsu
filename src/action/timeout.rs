@@ -1,21 +1,21 @@
-use std::io;
+use std::{ io, mem };
 use std::time::Duration;
 use io_uring::opcode::{ self, types };
 use crate::Handle;
 
 
 pub struct Timer<H: Handle> {
-    timespec: Box<types::Timespec>,
+    timespec: mem::ManuallyDrop<Box<types::Timespec>>,
     handle: H
 }
 
 impl<H: Handle> Timer<H> {
     pub fn new(handle: H) -> Timer<H> {
         Timer {
-            timespec: Box::new(types::Timespec {
+            timespec: mem::ManuallyDrop::new(Box::new(types::Timespec {
                 tv_sec: 0,
                 tv_nsec: 0
-            }),
+            })),
             handle
         }
     }
@@ -24,7 +24,7 @@ impl<H: Handle> Timer<H> {
         self.timespec.tv_sec = dur.as_secs() as _;
         self.timespec.tv_nsec = dur.subsec_nanos() as _;
 
-        let entry = opcode::Timeout::new(&*self.timespec).build();
+        let entry = opcode::Timeout::new(&**self.timespec).build();
 
         let wait = unsafe { self.handle.push(entry) };
         let ret = wait?.await.result();
@@ -36,4 +36,10 @@ impl<H: Handle> Timer<H> {
     }
 
     // TODO delay_until
+}
+
+impl<H: Handle> Drop for Timer<H> {
+    fn drop(&mut self) {
+        // TODO
+    }
 }

@@ -7,6 +7,7 @@ pub mod action;
 pub mod executor;
 
 use std::{ io, mem };
+use std::marker::Unpin;
 use std::sync::Arc;
 use std::cell::RefCell;
 use std::future::Future;
@@ -42,7 +43,7 @@ pub trait Handle: Clone {
     type Ticket: Ticket;
 
     // TODO Output = Result<CE> ?
-    type Wait: Future<Output = CompletionEntry>;
+    type Wait: Future<Output = CompletionEntry> + Unpin;
 
     // TODO Just Self::Wait ?
     unsafe fn push(&self, entry: SubmissionEntry) -> io::Result<Self::Wait>;

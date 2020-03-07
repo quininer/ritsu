@@ -36,9 +36,13 @@ impl<H: Handle> TcpListener<H> {
             &mut sockaddr.1
         )
             .build();
+        let sockaddr = mem::ManuallyDrop::new(sockaddr);
 
         let wait = unsafe { self.handle.push(entry) };
         let ret = wait?.await.result();
+
+        let sockaddr = mem::ManuallyDrop::into_inner(sockaddr);
+
         if ret >= 0 {
             unsafe {
                 let stream = net::TcpStream::from_raw_fd(ret);
@@ -78,11 +82,14 @@ impl<H: Handle> TcpStream<H> {
             sockaddr.len()
         )
             .build();
+        let sockaddr = mem::ManuallyDrop::new(sockaddr);
 
         let wait = unsafe { handle.push(entry) };
         let ret = wait?.await.result();
+
+        let _ = mem::ManuallyDrop::into_inner(sockaddr);
+
         if ret >= 0 {
-            drop(sockaddr);
             Ok(TcpStream {
                 fd: stream.into_tcp_stream(),
                 handle
@@ -99,32 +106,44 @@ impl<H: Handle> TcpStream<H> {
         let entry = opcode::Readv::new(op, bufs.as_mut_ptr() as *mut libc::iovec, bufs.len() as _)
             .build();
 
+        let bufs = mem::ManuallyDrop::new(bufs);
+        let buf = mem::ManuallyDrop::new(buf);
+
         let wait = unsafe { self.handle.push(entry) };
         let ret = wait?.await.result();
+
+        let _ = mem::ManuallyDrop::into_inner(bufs);
+        let mut buf = mem::ManuallyDrop::into_inner(buf);
+
         if ret >= 0 {
             unsafe {
                 buf.advance_mut(ret as _);
             }
 
-            drop(bufs);
             Ok(buf)
         } else {
             Err(io::Error::from_raw_os_error(-ret))
         }
     }
 
-    pub async fn write<B: Buf + Unpin + 'static>(&mut self, mut buf: B) -> io::Result<B> {
-        let mut bufs = iovecs(&buf);
+    pub async fn write<B: Buf + Unpin + 'static>(&mut self, buf: B) -> io::Result<B> {
+        let bufs = iovecs(&buf);
 
         let op = types::Target::Fd(self.fd.as_raw_fd());
-        let entry = opcode::Writev::new(op, bufs.as_mut_ptr() as *const libc::iovec, bufs.len() as _)
+        let entry = opcode::Writev::new(op, bufs.as_ptr() as *const libc::iovec, bufs.len() as _)
             .build();
+
+        let bufs = mem::ManuallyDrop::new(bufs);
+        let buf = mem::ManuallyDrop::new(buf);
 
         let wait = unsafe { self.handle.push(entry) };
         let ret = wait?.await.result();
+
+        let _ = mem::ManuallyDrop::into_inner(bufs);
+        let mut buf = mem::ManuallyDrop::into_inner(buf);
+
         if ret >= 0 {
             buf.advance(ret as _);
-            drop(bufs);
             Ok(buf)
         } else {
             Err(io::Error::from_raw_os_error(-ret))

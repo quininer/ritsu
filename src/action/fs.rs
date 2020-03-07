@@ -1,4 +1,4 @@
-use std::{ fs, io };
+use std::{ fs, io, mem };
 use std::marker::Unpin;
 use std::os::unix::io::{ AsRawFd, RawFd };
 use bytes::{ Buf, BufMut };
@@ -25,12 +25,16 @@ impl<H: Handle> File<H> {
         let entry = opcode::Readv::new(op, bufs.as_mut_ptr() as *mut libc::iovec, bufs.len() as _)
             .offset(offset)
             .build();
+        let bufs = mem::ManuallyDrop::new(bufs);
+        let buf = mem::ManuallyDrop::new(buf);
 
         let wait = unsafe { self.handle.push(entry) };
         let ret = wait?.await.result();
-        if ret >= 0 {
-            drop(bufs);
 
+        let _bufs = mem::ManuallyDrop::into_inner(bufs);
+        let mut buf = mem::ManuallyDrop::into_inner(buf);
+
+        if ret >= 0 {
             unsafe {
                 buf.advance_mut(ret as _);
             }
@@ -41,18 +45,23 @@ impl<H: Handle> File<H> {
         }
     }
 
-    pub async fn write_at<B: Buf + Unpin + 'static>(&mut self, offset: i64, mut buf: B) -> io::Result<B> {
-        let mut bufs = iovecs(&buf);
+    pub async fn write_at<B: Buf + Unpin + 'static>(&mut self, offset: i64, buf: B) -> io::Result<B> {
+        let bufs = iovecs(&buf);
 
         let op = types::Target::Fd(self.fd.as_raw_fd());
-        let entry = opcode::Writev::new(op, bufs.as_mut_ptr() as *const libc::iovec, bufs.len() as _)
+        let entry = opcode::Writev::new(op, bufs.as_ptr() as *const libc::iovec, bufs.len() as _)
             .offset(offset)
             .build();
+        let bufs = mem::ManuallyDrop::new(bufs);
+        let buf = mem::ManuallyDrop::new(buf);
 
         let wait = unsafe { self.handle.push(entry) };
         let ret = wait?.await.result();
+
+        let _bufs = mem::ManuallyDrop::into_inner(bufs);
+        let mut buf = mem::ManuallyDrop::into_inner(buf);
+
         if ret >= 0 {
-            drop(bufs);
             buf.advance(ret as _);
             Ok(buf)
         } else {
