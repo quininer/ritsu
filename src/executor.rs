@@ -69,7 +69,7 @@ impl<H: Handle> Runtime<H> {
     ///
     /// ```
     /// use ritsu::executor::Runtime;
-    /// use ritsu::unsycn;
+    /// use ritsu::unsync;
     ///
     /// let mut pool: Runtime<unsync::Handle> = Runtime::new().unwrap();
     /// # let my_app  = async {};
