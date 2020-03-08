@@ -99,6 +99,7 @@ impl<H: Handle> Proactor<H> {
         }
     }
 
+    // TODO refactor it
     pub fn park(&mut self, dur: Option<Duration>) -> io::Result<()> {
         let mut ring = self.ring.borrow_mut();
         let (submitter, sq, cq) = ring.split();
