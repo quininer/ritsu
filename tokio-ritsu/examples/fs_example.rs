@@ -1,39 +1,47 @@
 use std::io;
 use std::thread;
 use std::fs::File as StdFile;
-use tokio::runtime;
+use bytes::BytesMut;
 use ritsu::executor::Runtime;
 use ritsu::action::fs;
+use ritsu::action::AsyncWriteExt;
 use tokio_ritsu::Handle;
 
 
-
-fn main() -> io::Result<()> {
-    let mut pool = Runtime::<Handle>::new().unwrap();
-    let (driver, handle) = Handle::from(pool.raw_handle());
+#[tokio::main]
+async fn main() -> io::Result<()> {
+    let (driver, handle) = Handle::new();
 
     thread::spawn(move || {
-        let mut runtime = runtime::Builder::new()
-            .basic_scheduler()
-            .build()
+        let mut pool = Runtime::<Handle>::new().unwrap();
+        let raw_handle = pool.raw_handle();
+        pool.run_until(driver.register(raw_handle))
             .unwrap();
-
-        let fd = StdFile::open("./Cargo.toml").unwrap();
-        let mut fd = fs::File::from_std(fd, handle);
-
-        runtime.block_on(async {
-            let fut = fd.read_at(0, Vec::with_capacity(30));
-
-            fn is_send_sync<T: Send + Sync>(_: &T) {}
-            is_send_sync(&fut);
-
-            let buf = fut.await.unwrap();
-
-            println!("{}", String::from_utf8_lossy(&buf));
-        });
     });
 
-    pool.run_until(driver)?;
+    let fd = StdFile::open("./Cargo.toml")?;
+    let stdout = StdFile::create("/dev/stdout")?;
+    let mut fd = fs::File::from_std(fd, handle.clone());
+    let mut stdout = fs::File::from_std(stdout, handle).into_io();
+
+    let fut = async move {
+        let mut pos = 0;
+
+        loop {
+            let buf = fd.read_at(pos, BytesMut::with_capacity(64)).await?;
+
+            if buf.is_empty() {
+                break
+            }
+
+            pos += buf.len() as i64;
+            stdout.write(buf.freeze()).await?;
+        }
+
+        Ok(()) as io::Result<()>
+    };
+
+    tokio::spawn(fut).await??;
 
     Ok(())
 }

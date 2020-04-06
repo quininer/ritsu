@@ -29,21 +29,25 @@ pub trait AsyncWrite {
 }
 
 pub trait AsyncReadExt: AsyncRead {
-    fn read(&mut self) -> ReadFuture<'_>;
+    fn read(&mut self) -> ReadFuture<'_, Self>
+    where
+        Self: Sized;
 }
 
 pub trait AsyncWriteExt: AsyncWrite {
-    fn write(&mut self, buf: Bytes) -> WriteFuture<'_>;
+    fn write(&mut self, buf: Bytes) -> WriteFuture<'_, Self>
+    where
+        Self: Sized;
 }
 
 impl<R: AsyncRead> AsyncReadExt for R {
-    fn read(&mut self) -> ReadFuture<'_> {
+    fn read(&mut self) -> ReadFuture<'_, R> {
         ReadFuture(self)
     }
 }
 
 impl<W: AsyncWrite> AsyncWriteExt for W {
-    fn write(&mut self, buf: Bytes) -> WriteFuture<'_> {
+    fn write(&mut self, buf: Bytes) -> WriteFuture<'_, W> {
         match self.submit(buf) {
             Ok(()) => WriteFuture(Ok(self)),
             Err(err) => WriteFuture(Err(Some(err)))
@@ -51,9 +55,9 @@ impl<W: AsyncWrite> AsyncWriteExt for W {
     }
 }
 
-pub struct ReadFuture<'a>(&'a mut dyn AsyncRead);
+pub struct ReadFuture<'a, R>(&'a mut R);
 
-impl Future for ReadFuture<'_> {
+impl<R: AsyncRead> Future for ReadFuture<'_, R> {
     type Output = io::Result<BytesMut>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -61,9 +65,9 @@ impl Future for ReadFuture<'_> {
     }
 }
 
-pub struct WriteFuture<'a>(Result<&'a mut dyn AsyncWrite, Option<io::Error>>);
+pub struct WriteFuture<'a, W>(Result<&'a mut W, Option<io::Error>>);
 
-impl Future for WriteFuture<'_> {
+impl<W: AsyncWrite> Future for WriteFuture<'_, W> {
     type Output = io::Result<Bytes>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {

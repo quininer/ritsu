@@ -11,6 +11,7 @@ tokio = { path = "../../fork/tokio/tokio", features = [ "sync" ] }
 ritsu = { path = ".." }
 
 [dev-dependencies]
-tokio = { path = "../../fork/tokio/tokio", features = [ "rt-core" ] }
+tokio = { path = "../../fork/tokio/tokio", features = [ "full" ] }
 lazy_static = "*"
+bytes = "0.5"
 anyhow = "*"

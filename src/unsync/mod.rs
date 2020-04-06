@@ -4,7 +4,6 @@ use std::{ io, mem };
 use std::pin::Pin;
 use std::task::{ Context, Poll };
 use std::future::Future;
-use futures_util::future::FusedFuture;
 use io_uring::{ cqueue, squeue };
 use crate::{
     Proactor, RawHandle,
@@ -65,20 +64,6 @@ where
             },
             Inner::Err(err) => Poll::Ready(Err(err)),
             Inner::End => panic!()
-        }
-    }
-}
-
-impl<F, E> FusedFuture for AndFuture<F, E>
-where
-    F: Future + Unpin,
-    E: Unpin
-{
-    #[inline]
-    fn is_terminated(&self) -> bool {
-        match &self.0 {
-            Inner::Fut(_) | Inner::Err(_) => false,
-            Inner::End => true
         }
     }
 }

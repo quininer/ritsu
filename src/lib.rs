@@ -20,6 +20,9 @@ use io_uring::{ squeue, cqueue, IoUring };
 use crate::waker::EventFd;
 
 
+pub type SubmissionEntry = squeue::Entry;
+pub type CompletionEntry = cqueue::Entry;
+
 const EVENT_TOKEN: u64 = 0x00;
 const TIMEOUT_TOKEN: u64 = 0x00u64.wrapping_sub(1);
 
