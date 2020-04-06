@@ -4,7 +4,8 @@ use std::rc::{ Rc, Weak };
 use std::task::{ Context, Waker, Poll };
 use std::future::Future;
 use futures_util::future::FusedFuture;
-use crate::{ Ticket, CompletionEntry };
+use io_uring::cqueue;
+use crate::Ticket;
 
 
 pub struct Sender<T>(Weak<RefCell<Inner<T>>>);
@@ -47,7 +48,7 @@ impl<T> Sender<T> {
     }
 }
 
-impl Ticket for Sender<CompletionEntry> {
+impl Ticket for Sender<cqueue::Entry> {
     #[inline]
     fn into_raw(self) -> *const () {
         self.0.into_raw() as _
@@ -59,7 +60,7 @@ impl Ticket for Sender<CompletionEntry> {
     }
 
     #[inline]
-    fn set(self, item: CompletionEntry) {
+    fn set(self, item: cqueue::Entry) {
         let _ = self.send(item);
     }
 }

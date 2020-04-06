@@ -1,9 +1,8 @@
 use std::{ io, net };
-use std::rc::Rc;
-use std::cell::RefCell;
 use futures_util::future::TryFutureExt;
-use bytes::{ Buf, BytesMut };
+use bytes::Buf;
 use ritsu::executor::Runtime;
+use ritsu::action::{ AsyncReadExt, AsyncWriteExt };
 use ritsu::action::tcp;
 use ritsu::action::poll::{ Poll, ReadyExt };
 
@@ -13,14 +12,12 @@ fn main() -> io::Result<()> {
     let spawner = pool.spawner();
     let handle = pool.handle();
 
-    let bufpool = Rc::new(RefCell::new(Vec::with_capacity(64)));
     let listener = net::TcpListener::bind("127.0.0.1:1234")?;
     let mut listener = tcp::TcpListener::from_std(listener, handle);
 
     let fut = async move {
         loop {
             let (mut stream, addr) = listener.accept().await?;
-            let bufpool = bufpool.clone();
 
             println!("accept: {}", addr);
 
@@ -29,21 +26,12 @@ fn main() -> io::Result<()> {
 
                 loop {
                     stream.ready(Poll::READABLE).await?;
-
-                    let mut buf = bufpool
-                        .borrow_mut()
-                        .pop()
-                        .unwrap_or_else(BytesMut::new);
-                    if buf.capacity() < 2048 {
-                        buf.reserve(2048 - buf.capacity());
-                    }
-
-                    let mut buf = stream.read(buf).await?;
+                    let mut buf = stream
+                        .read()
+                        .await?
+                        .freeze();
 
                     if buf.is_empty() {
-                        bufpool
-                            .borrow_mut()
-                            .push(buf);
                         break
                     }
 
@@ -52,11 +40,6 @@ fn main() -> io::Result<()> {
                     while buf.has_remaining() {
                         buf = stream.write(buf).await?;
                     }
-
-                    buf.clear();
-                    bufpool
-                        .borrow_mut()
-                        .push(buf);
                 }
 
                 println!("connect {} count: {}", addr, count);

@@ -1,37 +1,38 @@
-use std::io;
+use std::{ io, mem };
 use std::time::Duration;
-use slab::Slab;
 use io_uring::opcode::{ self, types };
 use crate::Handle;
 
 
 pub struct Timer<H: Handle> {
-    timespec: Slab<types::Timespec>,
+    timespec: mem::ManuallyDrop<Box<types::Timespec>>,
+    lock: bool,
     handle: H
 }
 
 impl<H: Handle> Timer<H> {
     pub fn new(handle: H) -> Timer<H> {
         Timer {
-            timespec: Slab::new(),
+            timespec: mem::ManuallyDrop::new(Box::new(types::Timespec::default())),
+            lock: false,
             handle
         }
     }
 
     pub async fn delay_for(&mut self, dur: Duration) -> io::Result<()> {
-        let timespec = types::Timespec {
+        debug_assert!(!self.lock);
+
+        **self.timespec = types::Timespec {
             tv_sec: dur.as_secs() as _,
             tv_nsec: dur.subsec_nanos() as _
         };
-        let entry = self.timespec.vacant_entry();
-        let key = entry.key();
-        let timespec = entry.insert(timespec);
 
-        let entry = opcode::Timeout::new(timespec).build();
-        let wait = unsafe { self.handle.push(entry) };
-        let ret = wait?.await.result();
+        let entry = opcode::Timeout::new(&**self.timespec).build();
+        self.lock = true;
+        let ret = unsafe { self.handle.push(entry).await };
+        self.lock = false;
+        let ret = ret?.result();
 
-        self.timespec.remove(key);
         if ret >= 0 {
             Ok(())
         } else {
@@ -40,4 +41,14 @@ impl<H: Handle> Timer<H> {
     }
 
     // TODO delay_until
+}
+
+impl<H: Handle> Drop for Timer<H> {
+    fn drop(&mut self) {
+        if !self.lock {
+            unsafe {
+                mem::ManuallyDrop::drop(&mut self.timespec);
+            }
+        }
+    }
 }

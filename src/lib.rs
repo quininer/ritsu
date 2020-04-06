@@ -1,6 +1,5 @@
-#![feature(weak_into_raw, vec_into_raw_parts)]
+#![feature(weak_into_raw)]
 
-mod util;
 mod waker;
 pub mod unsync;
 pub mod action;
@@ -21,9 +20,6 @@ use io_uring::{ squeue, cqueue, IoUring };
 use crate::waker::EventFd;
 
 
-pub type SubmissionEntry = squeue::Entry;
-pub type CompletionEntry = cqueue::Entry;
-
 const EVENT_TOKEN: u64 = 0x00;
 const TIMEOUT_TOKEN: u64 = 0x00u64.wrapping_sub(1);
 
@@ -41,19 +37,16 @@ pub struct Proactor<H: Handle> {
 
 pub trait Handle: Clone {
     type Ticket: Ticket;
+    type Wait: Future<Output = io::Result<cqueue::Entry>> + Unpin;
 
-    // TODO Output = Result<CE> ?
-    type Wait: Future<Output = CompletionEntry> + Unpin;
-
-    // TODO Just Self::Wait ?
-    unsafe fn push(&self, entry: SubmissionEntry) -> io::Result<Self::Wait>;
+    unsafe fn push(&self, entry: squeue::Entry) -> Self::Wait;
 }
 
 pub trait Ticket: Sized {
     fn into_raw(self) -> *const ();
     unsafe fn from_raw(ptr: *const ()) -> Self;
 
-    fn set(self, item: CompletionEntry);
+    fn set(self, item: cqueue::Entry);
 }
 
 fn cq_drain<C: Ticket>(cq: &mut cqueue::AvailableQueue) {
@@ -177,7 +170,7 @@ pub struct RawHandle<H> {
 
 impl<H: Handle> RawHandle<H> {
     #[inline]
-    pub unsafe fn push(&self, mut entry: SubmissionEntry) -> io::Result<()> {
+    pub unsafe fn push(&self, mut entry: squeue::Entry) -> io::Result<()> {
         let ring = self.ring.upgrade()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "Proactor closed"))?;
 

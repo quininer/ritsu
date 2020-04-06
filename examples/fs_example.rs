@@ -1,7 +1,7 @@
 use std::io;
 use std::fs::File as StdFile;
 use ritsu::executor::Runtime;
-use ritsu::action::{ fs2, AsyncRead, AsyncWrite };
+use ritsu::action::{ AsyncReadExt, AsyncWriteExt, fs };
 
 
 fn main() -> io::Result<()> {
@@ -10,12 +10,12 @@ fn main() -> io::Result<()> {
 
     let fd = StdFile::open("./Cargo.toml")?;
     let stdout = StdFile::create("/dev/stdout")?;
-    let mut fd = fs2::File::from_std(fd, handle.clone());
-    let mut stdout = fs2::File::from_std(stdout, handle);
+    let mut fd = fs::File::from_std(fd, handle.clone()).into_io();
+    let mut stdout = fs::File::from_std(stdout, handle).into_io();
 
     let fut = async move {
-        let buf = (&mut fd as &mut dyn AsyncRead).read().await?.unwrap();
-        (&mut stdout as &mut dyn AsyncWrite).write(buf.freeze()).await?;
+        let buf = fd.read().await?;
+        stdout.write(buf.freeze()).await?;
 
         Ok(())
     };

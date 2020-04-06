@@ -1,10 +1,11 @@
-use std::{ io, mem };
+use std::io;
 use std::pin::Pin;
 use std::marker::Unpin;
 use std::task::{ Context, Poll as TaskPoll };
 use std::future::Future;
 use std::os::unix::io::{ AsRawFd, RawFd };
 use bitflags::bitflags;
+use futures_util::ready;
 use io_uring::opcode::{ self, types };
 use crate::action::AsHandle;
 use crate::Handle;
@@ -33,23 +34,14 @@ impl<T: AsHandle + AsRawFd> ReadyExt for T {
     }
 }
 
-pub struct ReadyFuture<H: Handle>(Inner<H>);
-
-enum Inner<H: Handle> {
-    Fut(H::Wait),
-    Err(io::Error),
-    End
-}
+pub struct ReadyFuture<H: Handle>(H::Wait);
 
 impl<H: Handle> ReadyFuture<H> {
     pub fn new(fd: RawFd, poll: Poll, handle: &H) -> ReadyFuture<H> {
         let entry = opcode::PollAdd::new(types::Target::Fd(fd), poll.bits())
             .build();
 
-        match unsafe { handle.push(entry) } {
-            Ok(fut) => ReadyFuture(Inner::Fut(fut)),
-            Err(err) => ReadyFuture(Inner::Err(err))
-        }
+        ReadyFuture(unsafe { handle.push(entry) })
     }
 }
 
@@ -61,23 +53,13 @@ where
     type Output = io::Result<()>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> TaskPoll<Self::Output> {
-        match mem::replace(&mut self.0, Inner::End) {
-            Inner::Fut(mut fut) => match Pin::new(&mut fut).poll(cx) {
-                TaskPoll::Ready(cqe) => {
-                    let ret = cqe.result();
-                    if ret >= 0 {
-                        TaskPoll::Ready(Ok(()))
-                    } else {
-                        TaskPoll::Ready(Err(io::Error::from_raw_os_error(-ret)))
-                    }
-                },
-                TaskPoll::Pending => {
-                    self.0 = Inner::Fut(fut);
-                    TaskPoll::Pending
-                }
-            },
-            Inner::Err(err) => TaskPoll::Ready(Err(err)),
-            Inner::End => panic!()
-        }
+        let cqe = ready!(Pin::new(&mut self.0).poll(cx))?;
+        let ret = cqe.result();
+
+        TaskPoll::Ready(if ret >= 0 {
+            Ok(())
+        } else {
+            Err(io::Error::from_raw_os_error(-ret))
+        })
     }
 }
