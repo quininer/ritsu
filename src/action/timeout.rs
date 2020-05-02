@@ -4,14 +4,14 @@ use io_uring::opcode::{ self, types };
 use crate::Handle;
 
 
-pub struct Timer<H: Handle> {
+pub struct Timer {
     timespec: mem::ManuallyDrop<Box<types::Timespec>>,
     lock: bool,
-    handle: H
+    handle: Handle
 }
 
-impl<H: Handle> Timer<H> {
-    pub fn new(handle: H) -> Timer<H> {
+impl Timer {
+    pub fn new(handle: Handle) -> Timer {
         Timer {
             timespec: mem::ManuallyDrop::new(Box::new(types::Timespec::default())),
             lock: false,
@@ -22,14 +22,15 @@ impl<H: Handle> Timer<H> {
     pub async fn delay_for(&mut self, dur: Duration) -> io::Result<()> {
         debug_assert!(!self.lock);
 
-        **self.timespec = types::Timespec {
-            tv_sec: dur.as_secs() as _,
-            tv_nsec: dur.subsec_nanos() as _
-        };
+        self.timespec.tv_sec = dur.as_secs() as _;
+        self.timespec.tv_nsec = dur.subsec_nanos() as _;
 
         let entry = opcode::Timeout::new(&**self.timespec).build();
         self.lock = true;
-        let ret = unsafe { self.handle.push(entry).await };
+        let ret = safety_await!{
+            [];
+            unsafe { self.handle.push(entry) }
+        };
         self.lock = false;
         let ret = ret?.result();
 
@@ -43,7 +44,7 @@ impl<H: Handle> Timer<H> {
     // TODO delay_until
 }
 
-impl<H: Handle> Drop for Timer<H> {
+impl Drop for Timer {
     fn drop(&mut self) {
         if !self.lock {
             unsafe {

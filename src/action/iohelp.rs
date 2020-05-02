@@ -6,34 +6,33 @@ use std::os::unix::io::AsRawFd;
 use bytes::{ Buf, BufMut, Bytes, BytesMut };
 use io_uring::opcode::{ self, types };
 use crate::action::{ AsyncRead, AsyncWrite };
-use crate::Handle;
+use crate::{ Handle, TicketFuture };
 
 
-pub struct IoInner<Fd, H: Handle> {
+pub struct IoInner<Fd> {
     pub fd: Fd,
-    pub handle: H,
-    pub state: IoState<H>
+    pub handle: Handle,
+    pub state: IoState
 }
 
-pub enum IoState<H: Handle> {
+pub enum IoState {
     Empty,
     Reading {
         buf: mem::ManuallyDrop<BytesMut>,
-        wait: H::Wait
+        wait: TicketFuture
     },
     Write {
         buf: Bytes
     },
     Writing {
         buf: mem::ManuallyDrop<Bytes>,
-        wait: H::Wait
+        wait: TicketFuture
     }
 }
 
-impl<Fd, H> AsyncRead for IoInner<Fd, H>
+impl<Fd> AsyncRead for IoInner<Fd>
 where
     Fd: AsRawFd,
-    H: Handle
 {
     fn poll_read(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<BytesMut>> {
         match mem::replace(&mut self.state, IoState::Empty) {
@@ -54,7 +53,7 @@ where
                 )
                     .build();
 
-                let wait = unsafe { self.handle.push(entry) };
+                let wait = unsafe { self.handle.push(entry)? };
 
                 self.state = IoState::Reading { buf, wait };
 
@@ -63,7 +62,7 @@ where
             IoState::Reading { buf, mut wait } => match Pin::new(&mut wait).poll(cx) {
                 Poll::Ready(ret) => {
                     let mut buf = mem::ManuallyDrop::into_inner(buf);
-                    let ret = ret?.result();
+                    let ret = ret.result();
 
                     Poll::Ready(if ret >= 0 {
                         unsafe {
@@ -88,10 +87,9 @@ where
     }
 }
 
-impl<Fd, H> AsyncWrite for IoInner<Fd, H>
+impl<Fd> AsyncWrite for IoInner<Fd>
 where
     Fd: AsRawFd,
-    H: Handle
 {
     fn submit(&mut self, buf: Bytes) -> io::Result<()> {
         match mem::replace(&mut self.state, IoState::Empty) {
@@ -119,14 +117,14 @@ where
                 )
                     .build();
 
-                let wait = unsafe { self.handle.push(entry) };
+                let wait = unsafe { self.handle.push(entry)? };
                 self.state = IoState::Writing { buf, wait };
                 self.poll_flush(cx)
             },
             IoState::Writing { buf, mut wait } => match Pin::new(&mut wait).poll(cx) {
                 Poll::Ready(ret) => {
                     let mut buf = mem::ManuallyDrop::into_inner(buf);
-                    let ret = ret?.result();
+                    let ret = ret.result();
 
                     Poll::Ready(if ret >= 0 {
                         buf.advance(ret as _);

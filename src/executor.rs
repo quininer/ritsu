@@ -10,14 +10,13 @@ use std::task::{ Context, Poll };
 use futures_task::LocalFutureObj;
 use futures_util::pin_mut;
 use futures_util::stream::{ StreamExt, FuturesUnordered };
-use crate::{ Proactor, Handle, RawHandle };
-use crate::unsync;
+use crate::{ Proactor, Handle };
 
 /// A single-threaded task pool for polling futures to completion.
-pub struct Runtime<H: Handle> {
+pub struct Runtime {
     pool: FuturesUnordered<LocalFutureObj<'static, ()>>,
     incoming: Rc<Incoming>,
-    proactor: Proactor<H>
+    proactor: Proactor
 }
 
 #[derive(Clone, Debug)]
@@ -27,9 +26,9 @@ pub struct Spawner {
 
 type Incoming = RefCell<Vec<LocalFutureObj<'static, ()>>>;
 
-impl<H: Handle> Runtime<H> {
+impl Runtime {
     /// Create a new, empty pool of tasks.
-    pub fn new() -> io::Result<Runtime<H>> {
+    pub fn new() -> io::Result<Runtime> {
         Ok(Runtime {
             pool: FuturesUnordered::new(),
             incoming: Default::default(),
@@ -50,7 +49,7 @@ impl<H: Handle> Runtime<H> {
     /// use ritsu::executor::Runtime;
     /// use ritsu::unsync;
     ///
-    /// let mut pool: Runtime<unsync::Handle> = Runtime::new().unwrap();
+    /// let mut pool: Runtime = Runtime::new().unwrap();
     ///
     /// // ... spawn some initial tasks using `spawn.spawn()` or `spawn.spawn_local()`
     ///
@@ -71,7 +70,7 @@ impl<H: Handle> Runtime<H> {
     /// use ritsu::executor::Runtime;
     /// use ritsu::unsync;
     ///
-    /// let mut pool: Runtime<unsync::Handle> = Runtime::new().unwrap();
+    /// let mut pool: Runtime = Runtime::new().unwrap();
     /// # let my_app  = async {};
     ///
     /// // run tasks in the pool until `my_app` completes
@@ -103,15 +102,9 @@ impl<H: Handle> Runtime<H> {
     }
 }
 
-impl Runtime<unsync::Handle> {
-    pub fn handle(&self) -> unsync::Handle {
+impl Runtime {
+    pub fn handle(&self) -> Handle {
         self.proactor.handle()
-    }
-}
-
-impl<H: Handle> Runtime<H> {
-    pub fn raw_handle(&self) -> RawHandle<H> {
-        self.proactor.as_raw_handle()
     }
 }
 
@@ -125,8 +118,8 @@ impl Spawner {
 
 // Set up and run a basic single-threaded spawner loop, invoking `f` on each
 // turn.
-fn run_executor<T, H: Handle>(
-    proactor: &mut Proactor<H>,
+fn run_executor<T>(
+    proactor: &mut Proactor,
     mut f: impl FnMut(&mut Context<'_>) -> Poll<T>
 ) -> T {
     loop {

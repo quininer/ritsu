@@ -15,6 +15,7 @@ members = [ "tokio-ritsu" ]
 libc = "0.2"
 futures-task = "0.3"
 futures-util = "0.3"
+pin-project-lite = "*"
 bitflags = "1"
 bytes = "0.5"
 slab = "*"

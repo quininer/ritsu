@@ -1,3 +1,23 @@
+#[macro_export]
+macro_rules! safety_await {
+    ( [ $( $res:ident ),* ] ; $push:expr ) => {{
+        $(
+            let res = std::mem::ManuallyDrop::new($res);
+        )*
+
+        let ret = match $push {
+            Ok(fut) => Ok(fut.await),
+            Err(err) => Err(err)
+        };
+
+        $(
+            $res = std::mem::ManuallyDrop::into_inner(res);
+        )*
+
+        ret
+    }}
+}
+
 pub mod iohelp;
 pub mod fs;
 pub mod timeout;
@@ -13,9 +33,7 @@ use crate::Handle;
 
 
 pub trait AsHandle {
-    type Handle: Handle;
-
-    fn as_handle(&self) -> &Self::Handle;
+    fn as_handle(&self) -> &Handle;
 }
 
 pub trait AsyncRead {

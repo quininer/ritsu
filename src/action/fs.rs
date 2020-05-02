@@ -1,4 +1,4 @@
-use std::{ fs, io, mem };
+use std::{ fs, io };
 use std::task::{ Context, Poll };
 use std::os::unix::io::{ AsRawFd, RawFd };
 use bytes::{ Buf, BufMut, Bytes, BytesMut };
@@ -8,19 +8,19 @@ use crate::action::{ AsHandle, AsyncRead, AsyncWrite };
 use crate::action::iohelp::{ IoInner, IoState };
 
 
-pub struct File<H: Handle> {
+pub struct File {
     fd: fs::File,
-    handle: H
+    handle: Handle
 }
 
-pub struct FileIo<H: Handle>(IoInner<fs::File, H>);
+pub struct FileIo(IoInner<fs::File>);
 
-impl<H: Handle> File<H> {
-    pub fn from_std(fd: fs::File, handle: H) -> File<H> {
+impl File {
+    pub fn from_std(fd: fs::File, handle: Handle) -> File {
         File { fd, handle }
     }
 
-    pub fn into_io(self) -> FileIo<H> {
+    pub fn into_io(self) -> FileIo {
         FileIo(IoInner {
             fd: self.fd,
             state: IoState::Empty,
@@ -28,9 +28,7 @@ impl<H: Handle> File<H> {
         })
     }
 
-    pub async fn read_at(&mut self, offset: i64, buf: BytesMut) -> io::Result<BytesMut> {
-        let mut buf = mem::ManuallyDrop::new(buf);
-
+    pub async fn read_at(&mut self, offset: i64, mut buf: BytesMut) -> io::Result<BytesMut> {
         let bytes = buf.bytes_mut();
         let entry = opcode::Read::new(
             types::Target::Fd(self.fd.as_raw_fd()),
@@ -40,8 +38,11 @@ impl<H: Handle> File<H> {
             .offset(offset)
             .build();
 
-        let ret = unsafe { self.handle.push(entry).await };
-        let mut buf = mem::ManuallyDrop::into_inner(buf);
+        let ret = safety_await!{
+            [ buf ];
+            unsafe { self.handle.push(entry) }
+        };
+
         let ret = ret?.result();
 
         if ret >= 0 {
@@ -55,9 +56,7 @@ impl<H: Handle> File<H> {
         }
     }
 
-    pub async fn write_at(&mut self, offset: i64, buf: Bytes) -> io::Result<Bytes> {
-        let buf = mem::ManuallyDrop::new(buf);
-
+    pub async fn write_at(&mut self, offset: i64, mut buf: Bytes) -> io::Result<Bytes> {
         let entry = opcode::Write::new(
             types::Target::Fd(self.fd.as_raw_fd()),
             buf.as_ptr() as *const _,
@@ -66,8 +65,10 @@ impl<H: Handle> File<H> {
             .offset(offset)
             .build();
 
-        let ret = unsafe { self.handle.push(entry).await };
-        let mut buf = mem::ManuallyDrop::into_inner(buf);
+        let ret = safety_await!{
+            [ buf ];
+            unsafe { self.handle.push(entry) }
+        };
         let ret = ret?.result();
 
         if ret >= 0 {
@@ -84,7 +85,10 @@ impl<H: Handle> File<H> {
             .flags(flag)
             .build();
 
-        let ret = unsafe { self.handle.push(entry).await };
+        let ret = safety_await!{
+            [];
+            unsafe { self.handle.push(entry) }
+        };
         let ret = ret?.result();
 
         if ret >= 0 {
@@ -105,14 +109,14 @@ impl<H: Handle> File<H> {
     }
 }
 
-impl<H: Handle> AsyncRead for FileIo<H> {
+impl AsyncRead for FileIo {
     #[inline]
     fn poll_read(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<BytesMut>> {
         self.0.poll_read(cx)
     }
 }
 
-impl<H: Handle> AsyncWrite for FileIo<H> {
+impl AsyncWrite for FileIo {
     #[inline]
     fn submit(&mut self, buf: Bytes) -> io::Result<()> {
         self.0.submit(buf)
@@ -124,16 +128,14 @@ impl<H: Handle> AsyncWrite for FileIo<H> {
     }
 }
 
-impl<H: Handle> AsHandle for File<H> {
-    type Handle = H;
-
+impl AsHandle for File {
     #[inline]
-    fn as_handle(&self) -> &Self::Handle {
+    fn as_handle(&self) -> &Handle {
         &self.handle
     }
 }
 
-impl<H: Handle> AsRawFd for File<H> {
+impl AsRawFd for File {
     #[inline]
     fn as_raw_fd(&self) -> RawFd {
         self.fd.as_raw_fd()

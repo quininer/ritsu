@@ -1,14 +1,12 @@
 use std::io;
 use std::pin::Pin;
-use std::marker::Unpin;
 use std::task::{ Context, Poll as TaskPoll };
 use std::future::Future;
 use std::os::unix::io::{ AsRawFd, RawFd };
 use bitflags::bitflags;
-use futures_util::ready;
 use io_uring::opcode::{ self, types };
 use crate::action::AsHandle;
-use crate::Handle;
+use crate::{ Handle, TicketFuture };
 
 
 bitflags!{
@@ -21,12 +19,12 @@ bitflags!{
 }
 
 pub trait ReadyExt: AsHandle + AsRawFd {
-    fn ready(&self, poll: Poll) -> ReadyFuture<Self::Handle>;
+    fn ready(&self, poll: Poll) -> ReadyFuture;
 }
 
 impl<T: AsHandle + AsRawFd> ReadyExt for T {
     #[inline]
-    fn ready(&self, poll: Poll) -> ReadyFuture<Self::Handle> {
+    fn ready(&self, poll: Poll) -> ReadyFuture {
         let fd = self.as_raw_fd();
         let handle = self.as_handle();
 
@@ -34,27 +32,34 @@ impl<T: AsHandle + AsRawFd> ReadyExt for T {
     }
 }
 
-pub struct ReadyFuture<H: Handle>(H::Wait);
+pub struct ReadyFuture(Option<io::Result<TicketFuture>>);
 
-impl<H: Handle> ReadyFuture<H> {
-    pub fn new(fd: RawFd, poll: Poll, handle: &H) -> ReadyFuture<H> {
+impl ReadyFuture {
+    pub fn new(fd: RawFd, poll: Poll, handle: &Handle) -> ReadyFuture {
         let entry = opcode::PollAdd::new(types::Target::Fd(fd), poll.bits())
             .build();
 
-        ReadyFuture(unsafe { handle.push(entry) })
+        ReadyFuture(Some(unsafe { handle.push(entry) }))
     }
 }
 
-impl<H> Future for ReadyFuture<H>
-where
-    H: Handle,
-    H::Wait: Unpin
-{
+impl Future for ReadyFuture {
     type Output = io::Result<()>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> TaskPoll<Self::Output> {
-        let cqe = ready!(Pin::new(&mut self.0).poll(cx))?;
-        let ret = cqe.result();
+        let mut fut = match self.0.take() {
+            Some(Ok(fut)) => fut,
+            Some(Err(err)) => return TaskPoll::Ready(Err(err)),
+            None => return TaskPoll::Pending
+        };
+
+        let ret = match Pin::new(&mut fut).poll(cx) {
+            TaskPoll::Ready(cqe) => cqe.result(),
+            TaskPoll::Pending => {
+                self.0 = Some(Ok(fut));
+                return TaskPoll::Pending
+            }
+        };
 
         TaskPoll::Ready(if ret >= 0 {
             Ok(())

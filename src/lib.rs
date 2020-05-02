@@ -1,24 +1,24 @@
 #![feature(weak_into_raw)]
 
+#[cfg(not(feature = "loom"))]
+mod loom;
+
 mod waker;
-pub mod unsync;
+pub mod sync;
 pub mod action;
 pub mod executor;
 
-use std::{ io, mem };
-use std::marker::Unpin;
+use std::{ io, mem, ptr };
 use std::sync::Arc;
 use std::cell::RefCell;
-use std::future::Future;
 use std::time::Duration;
-use std::marker::PhantomData;
 use std::os::unix::io::AsRawFd;
 use std::rc::{ Rc, Weak };
 use futures_task::{ self as task, WakerRef, Waker };
 use io_uring::opcode::{ self, types };
 use io_uring::{ squeue, cqueue, IoUring };
 use crate::waker::EventFd;
-
+pub use crate::sync::{ Ticket, TicketFuture };
 
 pub type SubmissionEntry = squeue::Entry;
 pub type CompletionEntry = cqueue::Entry;
@@ -26,7 +26,7 @@ pub type CompletionEntry = cqueue::Entry;
 const EVENT_TOKEN: u64 = 0x00;
 const TIMEOUT_TOKEN: u64 = 0x00u64.wrapping_sub(1);
 
-pub struct Proactor<H: Handle> {
+pub struct Proactor {
     ring: Rc<RefCell<IoUring>>,
     eventfd: Arc<EventFd>,
 
@@ -35,36 +35,22 @@ pub struct Proactor<H: Handle> {
 
     event_iovec: Box<[libc::iovec; 1]>,
     timeout: Box<types::Timespec>,
-    _mark: PhantomData<H>
 }
 
-pub trait Handle: Clone {
-    type Ticket: Ticket;
-    type Wait: Future<Output = io::Result<cqueue::Entry>> + Unpin;
-
-    unsafe fn push(&self, entry: squeue::Entry) -> Self::Wait;
-}
-
-pub trait Ticket: Sized {
-    fn into_raw(self) -> *const ();
-    unsafe fn from_raw(ptr: *const ()) -> Self;
-
-    fn set(self, item: cqueue::Entry);
-}
-
-fn cq_drain<C: Ticket>(cq: &mut cqueue::AvailableQueue) {
+fn cq_drain(cq: &mut cqueue::AvailableQueue) {
     for entry in cq {
         match entry.user_data() {
             EVENT_TOKEN | TIMEOUT_TOKEN => (),
             ptr => unsafe {
-                C::from_raw(ptr as _).set(entry.clone());
+                Ticket::from_raw(ptr::NonNull::new_unchecked(ptr as _))
+                    .send(entry.clone());
             }
         }
     }
 }
 
-impl<H: Handle> Proactor<H> {
-    pub fn new() -> io::Result<Proactor<H>> {
+impl Proactor {
+    pub fn new() -> io::Result<Proactor> {
         let ring = io_uring::IoUring::new(256)?; // TODO better number
         let mut event_buf = Box::new([0; 8]);
         let event_bufptr =
@@ -75,8 +61,7 @@ impl<H: Handle> Proactor<H> {
             ring: Rc::new(RefCell::new(ring)),
             eventfd: Arc::new(EventFd::new()?),
             event_buf, event_iovec,
-            timeout: Box::new(types::Timespec::default()),
-            _mark: PhantomData
+            timeout: Box::new(types::Timespec::default())
         })
     }
 
@@ -88,10 +73,9 @@ impl<H: Handle> Proactor<H> {
         task::waker_ref(&self.eventfd)
     }
 
-    pub fn as_raw_handle(&self) -> RawHandle<H> {
-        RawHandle {
-            ring: Rc::downgrade(&self.ring),
-            _mark: PhantomData
+    pub fn handle(&self) -> Handle {
+        Handle {
+            ring: Rc::downgrade(&self.ring)
         }
     }
 
@@ -103,7 +87,7 @@ impl<H: Handle> Proactor<H> {
         let cq_is_not_empty = cq.len() != 0;
 
         // handle before eventfd to avoid unnecessary wakeup
-        cq_drain::<H::Ticket>(&mut cq);
+        cq_drain(&mut cq);
 
         let mut event_e = if self.eventfd.get() {
             let op = types::Target::Fd(self.eventfd.as_raw_fd());
@@ -155,7 +139,7 @@ impl<H: Handle> Proactor<H> {
 
         cq.sync();
 
-        cq_drain::<H::Ticket>(&mut cq);
+        cq_drain(&mut cq);
 
         // reset eventfd
         self.eventfd.clean();
@@ -166,14 +150,12 @@ impl<H: Handle> Proactor<H> {
 
 
 #[derive(Clone)]
-pub struct RawHandle<H> {
+pub struct Handle {
     ring: Weak<RefCell<IoUring>>,
-    _mark: PhantomData<H>
 }
 
-impl<H: Handle> RawHandle<H> {
-    #[inline]
-    pub unsafe fn push(&self, mut entry: squeue::Entry) -> io::Result<()> {
+impl Handle {
+    unsafe fn raw_push(&self, mut entry: squeue::Entry) -> io::Result<()> {
         let ring = self.ring.upgrade()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "Proactor closed"))?;
 
@@ -191,7 +173,7 @@ impl<H: Handle> RawHandle<H> {
             match submitter.submit() {
                 Ok(_) => (),
                 Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => {
-                    cq_drain::<H::Ticket>(&mut cq.available());
+                    cq_drain(&mut cq.available());
                     submitter.submit()?;
                 },
                 Err(err) => return Err(err)
@@ -199,5 +181,14 @@ impl<H: Handle> RawHandle<H> {
         }
 
         Ok(())
+    }
+
+    pub unsafe fn push(&self, entry: squeue::Entry) -> io::Result<TicketFuture> {
+        let (ticket, fut) = Ticket::new();
+        let ptr = ticket.into_raw().as_ptr();
+
+        self.raw_push(entry.user_data(ptr as _))?;
+
+        Ok(fut)
     }
 }
