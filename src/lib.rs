@@ -4,11 +4,14 @@
 mod loom;
 
 mod waker;
+
+#[macro_use]
+pub mod util;
 pub mod sync;
 pub mod action;
 pub mod executor;
 
-use std::{ io, mem, ptr };
+use std::{ io, ptr };
 use std::sync::Arc;
 use std::cell::RefCell;
 use std::time::Duration;
@@ -29,11 +32,7 @@ const TIMEOUT_TOKEN: u64 = 0x00u64.wrapping_sub(1);
 pub struct Proactor {
     ring: Rc<RefCell<IoUring>>,
     eventfd: Arc<EventFd>,
-
-    #[allow(dead_code)]
-    event_buf: Box<[u8; 8]>,
-
-    event_iovec: Box<[libc::iovec; 1]>,
+    eventbuf: Box<[u8; 8]>,
     timeout: Box<types::Timespec>,
 }
 
@@ -52,15 +51,11 @@ fn cq_drain(cq: &mut cqueue::AvailableQueue) {
 impl Proactor {
     pub fn new() -> io::Result<Proactor> {
         let ring = io_uring::IoUring::new(256)?; // TODO better number
-        let mut event_buf = Box::new([0; 8]);
-        let event_bufptr =
-            unsafe { mem::transmute::<_, libc::iovec>(io::IoSliceMut::new(&mut *event_buf)) };
-        let event_iovec = Box::new([event_bufptr]);
 
         Ok(Proactor {
             ring: Rc::new(RefCell::new(ring)),
             eventfd: Arc::new(EventFd::new()?),
-            event_buf, event_iovec,
+            eventbuf: Box::new([0; 8]),
             timeout: Box::new(types::Timespec::default())
         })
     }
@@ -91,8 +86,8 @@ impl Proactor {
 
         let mut event_e = if self.eventfd.get() {
             let op = types::Target::Fd(self.eventfd.as_raw_fd());
-            let iovec_ptr = self.event_iovec.as_mut_ptr();
-            let entry = opcode::Readv::new(op, iovec_ptr, 1)
+            let iovec_ptr = self.eventbuf.as_mut_ptr();
+            let entry = opcode::Read::new(op, iovec_ptr, 8)
                 .build()
                 .user_data(EVENT_TOKEN);
             Some(entry)

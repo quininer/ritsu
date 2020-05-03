@@ -86,7 +86,6 @@ impl File {
             .build();
 
         let ret = safety_await!{
-            [];
             unsafe { self.handle.push(entry) }
         };
         let ret = ret?.result();

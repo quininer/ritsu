@@ -6,13 +6,13 @@ use socket2::{ SockAddr, Socket, Domain, Type, Protocol };
 use io_uring::opcode::{ self, types };
 use crate::action::{ AsHandle, AsyncRead, AsyncWrite };
 use crate::action::iohelp::{ IoInner, IoState };
+use crate::util::MaybeLock;
 use crate::Handle;
 
 
 pub struct TcpListener {
     fd: net::TcpListener,
-    sockaddr: mem::ManuallyDrop<Box<(libc::sockaddr, libc::socklen_t)>>,
-    lock: bool,
+    sockaddr: MaybeLock<Box<(libc::sockaddr, libc::socklen_t)>>,
     handle: Handle
 }
 
@@ -25,14 +25,11 @@ pub struct TcpStream(IoInner<net::TcpStream>);
 
 impl TcpListener {
     pub fn from_std(fd: net::TcpListener, handle: Handle) -> TcpListener {
-        let sockaddr = mem::ManuallyDrop::new(Box::new((
+        let sockaddr = MaybeLock::new(Box::new((
             unsafe { mem::zeroed() },
             mem::size_of::<libc::sockaddr>() as _
         )));
-        TcpListener {
-            fd, sockaddr, handle,
-            lock: false
-        }
+        TcpListener { fd, sockaddr, handle }
     }
 
     pub async fn accept(&mut self) -> io::Result<(TcpStream, net::SocketAddr)> {
@@ -43,12 +40,10 @@ impl TcpListener {
         )
             .build();
 
-        self.lock = true;
         let ret = safety_await!{
-            [];
+            ( self.sockaddr );
             unsafe { self.handle.push(entry) }
         };
-        self.lock = false;
         let ret = ret?.result();
 
         if ret >= 0 {
@@ -76,7 +71,7 @@ impl TcpConnector {
     }
 
     pub async fn connect(&mut self, addr: net::SocketAddr) -> io::Result<TcpStream> {
-        debug_assert!(self.sockaddr.is_none());
+        assert!(self.sockaddr.is_none());
 
         let domain = match &addr {
             net::SocketAddr::V4(_) => Domain::ipv4(),
@@ -94,7 +89,6 @@ impl TcpConnector {
             .build();
 
         let ret = safety_await!{
-            [];
             unsafe { self.handle.push(entry) }
         };
         self.sockaddr.take();
@@ -142,16 +136,6 @@ impl AsyncWrite for TcpStream {
     #[inline]
     fn poll_flush(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<Bytes>> {
         self.0.poll_flush(cx)
-    }
-}
-
-impl Drop for TcpListener {
-    fn drop(&mut self) {
-        if !self.lock {
-            unsafe {
-                mem::ManuallyDrop::drop(&mut self.sockaddr);
-            }
-        }
     }
 }
 

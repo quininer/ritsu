@@ -1,37 +1,32 @@
-use std::{ io, mem };
+use std::io;
 use std::time::Duration;
 use io_uring::opcode::{ self, types };
 use crate::Handle;
+use crate::util::MaybeLock;
 
 
 pub struct Timer {
-    timespec: mem::ManuallyDrop<Box<types::Timespec>>,
-    lock: bool,
+    timespec: MaybeLock<Box<types::Timespec>>,
     handle: Handle
 }
 
 impl Timer {
     pub fn new(handle: Handle) -> Timer {
         Timer {
-            timespec: mem::ManuallyDrop::new(Box::new(types::Timespec::default())),
-            lock: false,
+            timespec: MaybeLock::new(Box::new(types::Timespec::default())),
             handle
         }
     }
 
     pub async fn delay_for(&mut self, dur: Duration) -> io::Result<()> {
-        debug_assert!(!self.lock);
-
         self.timespec.tv_sec = dur.as_secs() as _;
         self.timespec.tv_nsec = dur.subsec_nanos() as _;
 
         let entry = opcode::Timeout::new(&**self.timespec).build();
-        self.lock = true;
         let ret = safety_await!{
-            [];
+            ( self.timespec );
             unsafe { self.handle.push(entry) }
         };
-        self.lock = false;
         let ret = ret?.result();
 
         if ret >= 0 {
@@ -42,14 +37,4 @@ impl Timer {
     }
 
     // TODO delay_until
-}
-
-impl Drop for Timer {
-    fn drop(&mut self) {
-        if !self.lock {
-            unsafe {
-                mem::ManuallyDrop::drop(&mut self.timespec);
-            }
-        }
-    }
 }

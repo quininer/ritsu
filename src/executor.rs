@@ -47,7 +47,6 @@ impl Runtime {
     ///
     /// ```
     /// use ritsu::executor::Runtime;
-    /// use ritsu::unsync;
     ///
     /// let mut pool: Runtime = Runtime::new().unwrap();
     ///
@@ -68,7 +67,6 @@ impl Runtime {
     ///
     /// ```
     /// use ritsu::executor::Runtime;
-    /// use ritsu::unsync;
     ///
     /// let mut pool: Runtime = Runtime::new().unwrap();
     /// # let my_app  = async {};
