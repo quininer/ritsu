@@ -7,12 +7,11 @@ use ritsu::action::fs;
 
 fn main() -> io::Result<()> {
     let mut pool = Runtime::new()?;
-    let handle = pool.handle();
 
     let fd = StdFile::open("./Cargo.toml")?;
     let stdout = StdFile::create("/dev/stdout")?;
-    let mut fd = fs::File::from_std(fd, handle.clone());
-    let mut stdout = fs::File::from_std(stdout, handle);
+    let mut fd = fs::File::from_std(fd);
+    let mut stdout = fs::File::from_std(stdout);
 
     let fut = async move {
         let mut pos = 0;

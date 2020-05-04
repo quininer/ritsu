@@ -12,14 +12,14 @@ pub struct Ticket(oneshot::Sender<cqueue::Entry>);
 
 impl Ticket {
     #[inline]
-    pub(crate) fn new() -> (Ticket, TicketFuture) {
+    pub fn new() -> (Ticket, TicketFuture) {
         let (tx, rx) = oneshot::channel();
 
         (Ticket(tx), TicketFuture { fut: rx })
     }
 
     #[inline]
-    pub(crate) fn into_raw(self) -> ptr::NonNull<Ticket> {
+    pub fn into_raw(self) -> ptr::NonNull<Ticket> {
         self.0.into_raw().cast()
     }
 

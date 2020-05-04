@@ -1,20 +1,18 @@
 use std::io;
 use std::time::Duration;
 use io_uring::opcode::{ self, types };
-use crate::Handle;
+use crate::handle;
 use crate::util::MaybeLock;
 
 
 pub struct Timer {
-    timespec: MaybeLock<Box<types::Timespec>>,
-    handle: Handle
+    timespec: MaybeLock<Box<types::Timespec>>
 }
 
 impl Timer {
-    pub fn new(handle: Handle) -> Timer {
+    pub fn new() -> Timer {
         Timer {
-            timespec: MaybeLock::new(Box::new(types::Timespec::default())),
-            handle
+            timespec: MaybeLock::new(Box::new(types::Timespec::default()))
         }
     }
 
@@ -25,7 +23,7 @@ impl Timer {
         let entry = opcode::Timeout::new(&**self.timespec).build();
         let ret = safety_await!{
             ( self.timespec );
-            unsafe { self.handle.push(entry) }
+            unsafe { handle::push(entry) }
         };
         let ret = ret?.result();
 

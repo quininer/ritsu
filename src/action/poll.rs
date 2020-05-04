@@ -5,8 +5,8 @@ use std::future::Future;
 use std::os::unix::io::{ AsRawFd, RawFd };
 use bitflags::bitflags;
 use io_uring::opcode::{ self, types };
-use crate::action::AsHandle;
-use crate::{ Handle, TicketFuture };
+use crate::handle;
+use crate::TicketFuture;
 
 
 bitflags!{
@@ -18,28 +18,27 @@ bitflags!{
     }
 }
 
-pub trait ReadyExt: AsHandle + AsRawFd {
+pub trait ReadyExt: AsRawFd {
     fn ready(&self, poll: Poll) -> ReadyFuture;
 }
 
-impl<T: AsHandle + AsRawFd> ReadyExt for T {
+impl<T: AsRawFd> ReadyExt for T {
     #[inline]
     fn ready(&self, poll: Poll) -> ReadyFuture {
         let fd = self.as_raw_fd();
-        let handle = self.as_handle();
 
-        ReadyFuture::new(fd, poll, handle)
+        ReadyFuture::new(fd, poll)
     }
 }
 
 pub struct ReadyFuture(Option<io::Result<TicketFuture>>);
 
 impl ReadyFuture {
-    pub fn new(fd: RawFd, poll: Poll, handle: &Handle) -> ReadyFuture {
+    pub fn new(fd: RawFd, poll: Poll) -> ReadyFuture {
         let entry = opcode::PollAdd::new(types::Target::Fd(fd), poll.bits())
             .build();
 
-        ReadyFuture(Some(unsafe { handle.push(entry) }))
+        ReadyFuture(Some(unsafe { handle::push(entry) }))
     }
 }
 

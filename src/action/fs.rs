@@ -2,18 +2,16 @@ use std::{ fs, io };
 use std::os::unix::io::{ AsRawFd, RawFd };
 use bytes::{ Buf, BufMut, Bytes, BytesMut };
 use io_uring::opcode::{ self, types };
-use crate::Handle;
-use crate::action::AsHandle;
+use crate::handle;
 
 
 pub struct File {
-    fd: fs::File,
-    handle: Handle
+    fd: fs::File
 }
 
 impl File {
-    pub fn from_std(fd: fs::File, handle: Handle) -> File {
-        File { fd, handle }
+    pub fn from_std(fd: fs::File) -> File {
+        File { fd }
     }
 
     pub async fn read_at(&mut self, offset: i64, mut buf: BytesMut) -> io::Result<BytesMut> {
@@ -28,7 +26,7 @@ impl File {
 
         let ret = safety_await!{
             [ buf ];
-            unsafe { self.handle.push(entry) }
+            unsafe { handle::push(entry) }
         };
 
         let ret = ret?.result();
@@ -55,7 +53,7 @@ impl File {
 
         let ret = safety_await!{
             [ buf ];
-            unsafe { self.handle.push(entry) }
+            unsafe { handle::push(entry) }
         };
         let ret = ret?.result();
 
@@ -74,7 +72,7 @@ impl File {
             .build();
 
         let ret = safety_await!{
-            unsafe { self.handle.push(entry) }
+            unsafe { handle::push(entry) }
         };
         let ret = ret?.result();
 
@@ -93,13 +91,6 @@ impl File {
     #[inline]
     pub async fn sync_data(&self) -> io::Result<()> {
         self.fsync(types::FsyncFlags::DATASYNC).await
-    }
-}
-
-impl AsHandle for File {
-    #[inline]
-    fn as_handle(&self) -> &Handle {
-        &self.handle
     }
 }
 

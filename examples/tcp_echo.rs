@@ -11,10 +11,9 @@ use ritsu::action::poll::{ Poll, ReadyExt };
 fn main() -> io::Result<()> {
     let mut pool = Runtime::new()?;
     let spawner = pool.spawner();
-    let handle = pool.handle();
 
     let listener = net::TcpListener::bind("127.0.0.1:1234")?;
-    let mut listener = tcp::TcpListener::from_std(listener, handle);
+    let mut listener = tcp::TcpListener::from_std(listener);
     let bufpool = Rc::new(RefCell::new(Vec::with_capacity(64)));
 
     let fut = async move {

@@ -3,34 +3,30 @@ use std::os::unix::io::{ AsRawFd, FromRawFd, RawFd };
 use bytes::{ Buf, BufMut, Bytes, BytesMut };
 use socket2::{ SockAddr, Socket, Domain, Type, Protocol };
 use io_uring::opcode::{ self, types };
-use crate::action::AsHandle;
 use crate::util::MaybeLock;
-use crate::Handle;
+use crate::handle;
 
 
 pub struct TcpListener {
     fd: net::TcpListener,
-    sockaddr: MaybeLock<Box<(libc::sockaddr, libc::socklen_t)>>,
-    handle: Handle
+    sockaddr: MaybeLock<Box<(libc::sockaddr, libc::socklen_t)>>
 }
 
 pub struct TcpConnector {
-    sockaddr: mem::ManuallyDrop<Box<Option<SockAddr>>>,
-    handle: Handle
+    sockaddr: mem::ManuallyDrop<Box<Option<SockAddr>>>
 }
 
 pub struct TcpStream {
-    fd: net::TcpStream,
-    handle: Handle
+    fd: net::TcpStream
 }
 
 impl TcpListener {
-    pub fn from_std(fd: net::TcpListener, handle: Handle) -> TcpListener {
+    pub fn from_std(fd: net::TcpListener) -> TcpListener {
         let sockaddr = MaybeLock::new(Box::new((
             unsafe { mem::zeroed() },
             mem::size_of::<libc::sockaddr>() as _
         )));
-        TcpListener { fd, sockaddr, handle }
+        TcpListener { fd, sockaddr }
     }
 
     pub async fn accept(&mut self) -> io::Result<(TcpStream, net::SocketAddr)> {
@@ -43,7 +39,7 @@ impl TcpListener {
 
         let ret = safety_await!{
             ( self.sockaddr );
-            unsafe { self.handle.push(entry) }
+            unsafe { handle::push(entry) }
         };
         let ret = ret?.result();
 
@@ -52,7 +48,7 @@ impl TcpListener {
                 let stream = net::TcpStream::from_raw_fd(ret);
                 let addr = SockAddr::from_raw_parts(&self.sockaddr.0, self.sockaddr.1);
 
-                let stream = TcpStream::from_std(stream, self.handle.clone());
+                let stream = TcpStream::from_std(stream);
                 let addr = addr.as_std().unwrap();
 
                 Ok((stream, addr))
@@ -64,10 +60,9 @@ impl TcpListener {
 }
 
 impl TcpConnector {
-    pub fn new(handle: Handle) -> TcpConnector {
+    pub fn new() -> TcpConnector {
         TcpConnector {
-            sockaddr: mem::ManuallyDrop::new(Box::new(None)),
-            handle
+            sockaddr: mem::ManuallyDrop::new(Box::new(None))
         }
     }
 
@@ -90,16 +85,13 @@ impl TcpConnector {
             .build();
 
         let ret = safety_await!{
-            unsafe { self.handle.push(entry) }
+            unsafe { handle::push(entry) }
         };
         self.sockaddr.take();
         let ret = ret?.result();
 
         if ret >= 0 {
-            Ok(TcpStream {
-                fd: stream.into_tcp_stream(),
-                handle: self.handle.clone()
-            })
+            Ok(TcpStream { fd: stream.into_tcp_stream() })
         } else {
             Err(io::Error::from_raw_os_error(-ret))
         }
@@ -107,13 +99,13 @@ impl TcpConnector {
 }
 
 impl TcpStream {
-    pub fn from_std(fd: net::TcpStream, handle: Handle) -> TcpStream {
-        TcpStream { fd, handle }
+    pub fn from_std(fd: net::TcpStream) -> TcpStream {
+        TcpStream { fd }
     }
 
     #[inline]
-    pub async fn connect(addr: net::SocketAddr, handle: Handle) -> io::Result<TcpStream> {
-        TcpConnector::new(handle).connect(addr).await
+    pub async fn connect(addr: net::SocketAddr) -> io::Result<TcpStream> {
+        TcpConnector::new().connect(addr).await
     }
 
     pub async fn read(&mut self, mut buf: BytesMut) -> io::Result<BytesMut> {
@@ -127,7 +119,7 @@ impl TcpStream {
 
         let ret = safety_await!{
             [ buf ];
-            unsafe { self.handle.push(entry) }
+            unsafe { handle::push(entry) }
         };
 
         let ret = ret?.result();
@@ -153,7 +145,7 @@ impl TcpStream {
 
         let ret = safety_await!{
             [ buf ];
-            unsafe { self.handle.push(entry) }
+            unsafe { handle::push(entry) }
         };
         let ret = ret?.result();
 
@@ -173,20 +165,6 @@ impl Drop for TcpConnector {
                 mem::ManuallyDrop::drop(&mut self.sockaddr);
             }
         }
-    }
-}
-
-impl AsHandle for TcpListener {
-    #[inline]
-    fn as_handle(&self) -> &Handle {
-        &self.handle
-    }
-}
-
-impl AsHandle for TcpStream {
-    #[inline]
-    fn as_handle(&self) -> &Handle {
-        &self.handle
     }
 }
 

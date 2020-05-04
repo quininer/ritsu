@@ -1,5 +1,3 @@
-#![feature(weak_into_raw)]
-
 #[cfg(not(feature = "loom"))]
 mod loom;
 
@@ -8,6 +6,7 @@ mod waker;
 #[macro_use]
 pub mod util;
 pub mod sync;
+pub mod handle;
 pub mod action;
 pub mod executor;
 
@@ -16,13 +15,14 @@ use std::sync::Arc;
 use std::cell::RefCell;
 use std::time::Duration;
 use std::os::unix::io::AsRawFd;
-use std::rc::{ Rc, Weak };
+use std::rc::Rc;
 use futures_task::{ self as task, WakerRef, Waker };
 use static_assertions::const_assert_eq;
 use io_uring::opcode::{ self, types };
 use io_uring::{ squeue, cqueue, IoUring };
 use crate::waker::EventFd;
 pub use crate::sync::{ Ticket, TicketFuture };
+
 
 pub type SubmissionEntry = squeue::Entry;
 pub type CompletionEntry = cqueue::Entry;
@@ -37,8 +37,8 @@ pub struct Proactor {
 }
 
 #[derive(Clone)]
-pub struct Handle {
-    ring: Weak<RefCell<IoUring>>,
+pub struct RawHandle {
+    ring: Rc<RefCell<IoUring>>,
 }
 
 impl Proactor {
@@ -61,9 +61,9 @@ impl Proactor {
         task::waker_ref(&self.eventfd)
     }
 
-    pub fn handle(&self) -> Handle {
-        Handle {
-            ring: Rc::downgrade(&self.ring)
+    pub fn raw_handle(&self) -> RawHandle {
+        RawHandle {
+            ring: Rc::clone(&self.ring)
         }
     }
 
@@ -152,12 +152,9 @@ fn cq_drain(cq: &mut cqueue::AvailableQueue) {
     }
 }
 
-impl Handle {
-    unsafe fn raw_push(&self, mut entry: squeue::Entry) -> io::Result<()> {
-        let ring = self.ring.upgrade()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "Proactor closed"))?;
-
-        let mut ring = ring.borrow_mut();
+impl RawHandle {
+    pub unsafe fn raw_push(&self, mut entry: squeue::Entry) -> io::Result<()> {
+        let mut ring = self.ring.borrow_mut();
         let (submitter, sq, cq) = ring.split();
 
         loop {
@@ -181,12 +178,13 @@ impl Handle {
         Ok(())
     }
 
-    pub unsafe fn push(&self, entry: squeue::Entry) -> io::Result<TicketFuture> {
-        let (ticket, fut) = Ticket::new();
-        let ptr = ticket.into_raw().as_ptr();
+    pub fn into_raw(self) -> *const RawHandle {
+        Rc::into_raw(self.ring) as *const _
+    }
 
-        self.raw_push(entry.user_data(ptr as _))?;
-
-        Ok(fut)
+    pub unsafe fn from_raw(ptr: *const RawHandle) -> RawHandle {
+        RawHandle {
+            ring: Rc::from_raw(ptr as *const _)
+        }
     }
 }

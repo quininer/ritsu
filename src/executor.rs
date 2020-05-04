@@ -10,7 +10,7 @@ use std::task::{ Context, Poll };
 use futures_task::LocalFutureObj;
 use futures_util::pin_mut;
 use futures_util::stream::{ StreamExt, FuturesUnordered };
-use crate::{ Proactor, Handle };
+use crate::{ handle, Proactor, RawHandle };
 
 /// A single-threaded task pool for polling futures to completion.
 pub struct Runtime {
@@ -101,8 +101,9 @@ impl Runtime {
 }
 
 impl Runtime {
-    pub fn handle(&self) -> Handle {
-        self.proactor.handle()
+    #[inline]
+    pub fn raw_handle(&self) -> RawHandle {
+        self.proactor.raw_handle()
     }
 }
 
@@ -120,6 +121,12 @@ fn run_executor<T>(
     proactor: &mut Proactor,
     mut f: impl FnMut(&mut Context<'_>) -> Poll<T>
 ) -> T {
+    unsafe {
+        let raw_handle = proactor.raw_handle();
+        let handle = handle::default_handle(raw_handle);
+        handle::set(handle);
+    }
+
     loop {
         let waker = proactor.waker_ref();
         let mut cx = Context::from_waker(&waker);
