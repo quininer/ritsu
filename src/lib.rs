@@ -2,15 +2,15 @@
 mod loom;
 
 mod waker;
+mod sync;
 
 #[macro_use]
 pub mod util;
-pub mod sync;
 pub mod handle;
 pub mod action;
 pub mod executor;
 
-use std::{ io, ptr };
+use std::{ io, ptr, mem };
 use std::sync::Arc;
 use std::cell::RefCell;
 use std::time::Duration;
@@ -32,7 +32,7 @@ const WAKE_TOKEN: u64 = 0x0;
 pub struct Proactor {
     ring: Rc<RefCell<IoUring>>,
     eventfd: Arc<EventFd>,
-    eventbuf: Box<[u8; 8]>,
+    eventbuf: mem::ManuallyDrop<Box<[u8; 8]>>,
     timeout: Box<types::Timespec>,
 }
 
@@ -48,7 +48,7 @@ impl Proactor {
         Ok(Proactor {
             ring: Rc::new(RefCell::new(ring)),
             eventfd: Arc::new(EventFd::new()?),
-            eventbuf: Box::new([0; 8]),
+            eventbuf: mem::ManuallyDrop::new(Box::new([0; 8])), // TODO not leak it :(
             timeout: Box::new(types::Timespec::default())
         })
     }
@@ -153,7 +153,7 @@ fn cq_drain(cq: &mut cqueue::AvailableQueue) {
 }
 
 impl RawHandle {
-    pub unsafe fn raw_push(&self, mut entry: squeue::Entry) -> io::Result<()> {
+    pub unsafe fn raw_push(&self, mut entry: SubmissionEntry) -> io::Result<()> {
         let mut ring = self.ring.borrow_mut();
         let (submitter, sq, cq) = ring.split();
 
@@ -178,11 +178,11 @@ impl RawHandle {
         Ok(())
     }
 
-    pub fn into_raw(self) -> *const RawHandle {
+    fn into_raw(self) -> *const RawHandle {
         Rc::into_raw(self.ring) as *const _
     }
 
-    pub unsafe fn from_raw(ptr: *const RawHandle) -> RawHandle {
+    unsafe fn from_raw(ptr: *const RawHandle) -> RawHandle {
         RawHandle {
             ring: Rc::from_raw(ptr as *const _)
         }

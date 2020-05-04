@@ -1,5 +1,3 @@
-// mod oneshot;
-
 use std::{ io, mem };
 use std::pin::Pin;
 use std::task::{ Context, Poll };
@@ -16,6 +14,7 @@ use ritsu::{
 };
 
 
+#[derive(Clone)]
 pub struct Handle {
     inner: InnerHandle,
     tokio: runtime::Handle
@@ -76,9 +75,8 @@ fn create_handle(handle: InnerHandle) -> TaskHandle {
         let handle = Box::from_raw(ptr as *mut InnerHandle);
 
         let (ticket, fut) = Ticket::new();
-        let ptr = ticket.into_raw().as_ptr();
 
-        let ret = handle.0.send(entry.user_data(ptr as _));
+        let reg = handle.0.send(ticket.register(entry));
         mem::forget(handle);
 
         ret.map_err(|_| io::Error::new(

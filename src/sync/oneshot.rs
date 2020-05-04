@@ -1,5 +1,7 @@
 //! fork from https://github.com/quininer/oneshot
 
+#![allow(dead_code)]
+
 use std::{ mem, ptr };
 use std::pin::Pin;
 use std::future::Future;

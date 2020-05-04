@@ -2,6 +2,8 @@
 name = "ritsu"
 version = "0.1.0"
 authors = ["quininer <quininer@live.com>"]
+license = "MIT"
+description = "An experimental asynchronous runtime based on `io-uring`."
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -15,15 +17,14 @@ members = [ "tokio-ritsu" ]
 libc = "0.2"
 futures-task = "0.3"
 futures-util = "0.3"
-pin-project-lite = "*"
+pin-project-lite = "0.1"
 bitflags = "1"
 bytes = "0.5"
-slab = "*"
-socket2 = "*"
+socket2 = "0.3"
 static_assertions = "1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-io-uring = { version = "0.3.1", features = [ "unstable" ] }
+io-uring = { version = "0.3", features = [ "unstable" ] }
 
 [dev-dependencies]
-anyhow = "*"
+anyhow = "1"

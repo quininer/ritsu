@@ -4,13 +4,9 @@ pub mod tcp;
 pub mod poll;
 
 use std::io;
-use io_uring::squeue;
 use crate::sync::TicketFuture;
+use crate::SubmissionEntry;
 
-
-pub trait AsHandle {
-    fn as_handle(&self) -> &Handle;
-}
 
 pub struct Handle {
     ptr: *const (),
@@ -18,7 +14,7 @@ pub struct Handle {
 }
 
 pub struct HandleVTable {
-    pub push: unsafe fn(*const (), squeue::Entry) -> io::Result<TicketFuture>,
+    pub push: unsafe fn(*const (), SubmissionEntry) -> io::Result<TicketFuture>,
     pub clone: unsafe fn(*const ()) -> Handle,
     pub drop: unsafe fn(*const ())
 }
@@ -29,7 +25,7 @@ impl Handle {
     }
 
     #[inline]
-    pub unsafe fn push(&self, entry: squeue::Entry) -> io::Result<TicketFuture> {
+    pub unsafe fn push(&self, entry: SubmissionEntry) -> io::Result<TicketFuture> {
         (self.vtable.push)(self.ptr, entry)
     }
 }

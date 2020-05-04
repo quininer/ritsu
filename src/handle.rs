@@ -1,9 +1,8 @@
 use std::{ io, mem };
 use std::cell::RefCell;
-use io_uring::squeue;
 use crate::sync::{ Ticket, TicketFuture };
 use crate::action::{ Handle, HandleVTable };
-use crate::RawHandle;
+use crate::{ RawHandle, SubmissionEntry };
 
 
 thread_local!{
@@ -16,7 +15,7 @@ pub unsafe fn set(handle: Handle) {
     });
 }
 
-pub unsafe fn push(entry: squeue::Entry) -> io::Result<TicketFuture> {
+pub unsafe fn push(entry: SubmissionEntry) -> io::Result<TicketFuture> {
     HANDLE.with(|h| Some(h.borrow().as_ref()?.push(entry)))
         .expect("not found ritsu runtime")
 }
@@ -27,13 +26,12 @@ pub fn default_handle(raw_handle: RawHandle) -> Handle {
         push, clone, drop
     };
 
-    unsafe fn push(ptr: *const (), entry: squeue::Entry) -> io::Result<TicketFuture> {
+    unsafe fn push(ptr: *const (), entry: SubmissionEntry) -> io::Result<TicketFuture> {
         let handle = RawHandle::from_raw(ptr as *const _);
 
         let (ticket, fut) = Ticket::new();
-        let ptr = ticket.into_raw().as_ptr();
 
-        handle.raw_push(entry.user_data(ptr as _))?;
+        handle.raw_push(ticket.register(entry))?;
 
         mem::forget(handle);
         Ok(fut)

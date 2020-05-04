@@ -5,10 +5,10 @@ use std::pin::Pin;
 use std::task::{ Context, Poll };
 use std::future::Future;
 use pin_project_lite::pin_project;
-use io_uring::cqueue;
+use crate::{ SubmissionEntry, CompletionEntry };
 
 
-pub struct Ticket(oneshot::Sender<cqueue::Entry>);
+pub struct Ticket(oneshot::Sender<CompletionEntry>);
 
 impl Ticket {
     #[inline]
@@ -19,8 +19,8 @@ impl Ticket {
     }
 
     #[inline]
-    pub fn into_raw(self) -> ptr::NonNull<Ticket> {
-        self.0.into_raw().cast()
+    pub fn register(self, entry: SubmissionEntry) -> SubmissionEntry {
+        entry.user_data(self.0.into_raw() as _)
     }
 
     #[inline]
@@ -29,7 +29,7 @@ impl Ticket {
     }
 
     #[inline]
-    pub(crate) fn send(self, entry: cqueue::Entry) {
+    pub(crate) fn send(self, entry: CompletionEntry) {
         let _ = self.0.send(entry);
     }
 }
@@ -37,12 +37,12 @@ impl Ticket {
 pin_project!{
     pub struct TicketFuture {
         #[pin]
-        fut: oneshot::Receiver<cqueue::Entry>
+        fut: oneshot::Receiver<CompletionEntry>
     }
 }
 
 impl Future for TicketFuture {
-    type Output = cqueue::Entry;
+    type Output = CompletionEntry;
 
     #[inline]
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
