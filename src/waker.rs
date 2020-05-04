@@ -7,9 +7,15 @@ use futures_task::ArcWake;
 
 #[derive(Debug)]
 pub struct EventFd {
-    flag: atomic::AtomicBool,
+    flag: atomic::AtomicU8,
     fd: File
 }
+
+#[derive(Copy, Clone)]
+pub struct State(u8);
+
+const READY:   u8 = 0b01;
+const PARKING: u8 = 0b10;
 
 impl EventFd {
     pub fn new() -> io::Result<EventFd> {
@@ -17,7 +23,7 @@ impl EventFd {
 
         if fd != -1 {
             Ok(EventFd {
-                flag: atomic::AtomicBool::new(true),
+                flag: atomic::AtomicU8::new(0x00),
                 fd: unsafe { File::from_raw_fd(fd) }
             })
         } else {
@@ -25,24 +31,46 @@ impl EventFd {
         }
     }
 
-    pub fn get(&self) -> bool {
-        self.flag.load(atomic::Ordering::Acquire)
+    #[inline]
+    pub fn park(&self) -> State {
+        let state = self.flag.fetch_or(PARKING, atomic::Ordering::AcqRel);
+        State(state)
     }
 
-    pub fn clean(&self) {
-        self.flag.store(false, atomic::Ordering::Release);
+    #[inline]
+    pub fn reset(&self) {
+        self.flag.fetch_and(!READY, atomic::Ordering::Release);
+    }
+}
+
+impl State {
+    #[inline]
+    pub fn is_ready(self) -> bool {
+        self.0 & READY == READY
+    }
+
+    #[inline]
+    pub fn is_park(self) -> bool {
+        self.0 & PARKING == PARKING
     }
 }
 
 impl ArcWake for EventFd {
     fn wake_by_ref(arc_self: &Arc<Self>) {
-        if !arc_self.flag.swap(true, atomic::Ordering::Acquire) {
-            let _ = (&arc_self.fd).write(&0x1u64.to_le_bytes());
+        let EventFd { flag, fd } = &**arc_self;
+
+        let state = State(flag.fetch_and(!READY, atomic::Ordering::AcqRel));
+
+        if !state.is_ready() && state.is_park() {
+            let _ = (fd as &File).write(&0x1u64.to_le_bytes());
+
+            flag.fetch_and(!PARKING, atomic::Ordering::Release);
         }
     }
 }
 
 impl AsRawFd for EventFd {
+    #[inline]
     fn as_raw_fd(&self) -> RawFd {
         self.fd.as_raw_fd()
     }

@@ -7,11 +7,11 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = { path = "../../fork/tokio/tokio", features = [ "sync" ] }
+tokio = { version = "0.2", features = [ "sync" ] }
 ritsu = { path = ".." }
 
 [dev-dependencies]
-tokio = { path = "../../fork/tokio/tokio", features = [ "full" ] }
+tokio = { version = "0.2", features = [ "full" ] }
 lazy_static = "*"
 bytes = "0.5"
 anyhow = "*"

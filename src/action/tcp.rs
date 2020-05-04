@@ -1,11 +1,9 @@
 use std::{ io, net, mem };
-use std::task::{ Context, Poll };
 use std::os::unix::io::{ AsRawFd, FromRawFd, RawFd };
-use bytes::{ Bytes, BytesMut };
+use bytes::{ Buf, BufMut, Bytes, BytesMut };
 use socket2::{ SockAddr, Socket, Domain, Type, Protocol };
 use io_uring::opcode::{ self, types };
-use crate::action::{ AsHandle, AsyncRead, AsyncWrite };
-use crate::action::iohelp::{ IoInner, IoState };
+use crate::action::AsHandle;
 use crate::util::MaybeLock;
 use crate::Handle;
 
@@ -21,7 +19,10 @@ pub struct TcpConnector {
     handle: Handle
 }
 
-pub struct TcpStream(IoInner<net::TcpStream>);
+pub struct TcpStream {
+    fd: net::TcpStream,
+    handle: Handle
+}
 
 impl TcpListener {
     pub fn from_std(fd: net::TcpListener, handle: Handle) -> TcpListener {
@@ -95,11 +96,10 @@ impl TcpConnector {
         let ret = ret?.result();
 
         if ret >= 0 {
-            Ok(TcpStream(IoInner {
+            Ok(TcpStream {
                 fd: stream.into_tcp_stream(),
-                state: IoState::Empty,
                 handle: self.handle.clone()
-            }))
+            })
         } else {
             Err(io::Error::from_raw_os_error(-ret))
         }
@@ -108,34 +108,61 @@ impl TcpConnector {
 
 impl TcpStream {
     pub fn from_std(fd: net::TcpStream, handle: Handle) -> TcpStream {
-        TcpStream(IoInner {
-            fd, handle,
-            state: IoState::Empty
-        })
+        TcpStream { fd, handle }
     }
 
     #[inline]
     pub async fn connect(addr: net::SocketAddr, handle: Handle) -> io::Result<TcpStream> {
         TcpConnector::new(handle).connect(addr).await
     }
-}
 
-impl AsyncRead for TcpStream {
-    #[inline]
-    fn poll_read(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<BytesMut>> {
-        self.0.poll_read(cx)
+    pub async fn read(&mut self, mut buf: BytesMut) -> io::Result<BytesMut> {
+        let bytes = buf.bytes_mut();
+        let entry = opcode::Read::new(
+            types::Target::Fd(self.fd.as_raw_fd()),
+            bytes.as_mut_ptr() as *mut _,
+            bytes.len() as _
+        )
+            .build();
+
+        let ret = safety_await!{
+            [ buf ];
+            unsafe { self.handle.push(entry) }
+        };
+
+        let ret = ret?.result();
+
+        if ret >= 0 {
+            unsafe {
+                buf.advance_mut(ret as _);
+            }
+
+            Ok(buf)
+        } else {
+            Err(io::Error::from_raw_os_error(-ret))
+        }
     }
-}
 
-impl AsyncWrite for TcpStream {
-    #[inline]
-    fn submit(&mut self, buf: Bytes) -> io::Result<()> {
-        self.0.submit(buf)
-    }
+    pub async fn write(&mut self, mut buf: Bytes) -> io::Result<Bytes> {
+        let entry = opcode::Write::new(
+            types::Target::Fd(self.fd.as_raw_fd()),
+            buf.as_ptr() as *const _,
+            buf.len() as _
+        )
+            .build();
 
-    #[inline]
-    fn poll_flush(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<Bytes>> {
-        self.0.poll_flush(cx)
+        let ret = safety_await!{
+            [ buf ];
+            unsafe { self.handle.push(entry) }
+        };
+        let ret = ret?.result();
+
+        if ret >= 0 {
+            buf.advance(ret as _);
+            Ok(buf)
+        } else {
+            Err(io::Error::from_raw_os_error(-ret))
+        }
     }
 }
 
@@ -159,7 +186,7 @@ impl AsHandle for TcpListener {
 impl AsHandle for TcpStream {
     #[inline]
     fn as_handle(&self) -> &Handle {
-        &self.0.handle
+        &self.handle
     }
 }
 
@@ -173,6 +200,6 @@ impl AsRawFd for TcpListener {
 impl AsRawFd for TcpStream {
     #[inline]
     fn as_raw_fd(&self) -> RawFd {
-        self.0.fd.as_raw_fd()
+        self.fd.as_raw_fd()
     }
 }

@@ -1,11 +1,9 @@
 use std::{ fs, io };
-use std::task::{ Context, Poll };
 use std::os::unix::io::{ AsRawFd, RawFd };
 use bytes::{ Buf, BufMut, Bytes, BytesMut };
 use io_uring::opcode::{ self, types };
 use crate::Handle;
-use crate::action::{ AsHandle, AsyncRead, AsyncWrite };
-use crate::action::iohelp::{ IoInner, IoState };
+use crate::action::AsHandle;
 
 
 pub struct File {
@@ -13,19 +11,9 @@ pub struct File {
     handle: Handle
 }
 
-pub struct FileIo(IoInner<fs::File>);
-
 impl File {
     pub fn from_std(fd: fs::File, handle: Handle) -> File {
         File { fd, handle }
-    }
-
-    pub fn into_io(self) -> FileIo {
-        FileIo(IoInner {
-            fd: self.fd,
-            state: IoState::Empty,
-            handle: self.handle
-        })
     }
 
     pub async fn read_at(&mut self, offset: i64, mut buf: BytesMut) -> io::Result<BytesMut> {
@@ -105,25 +93,6 @@ impl File {
     #[inline]
     pub async fn sync_data(&self) -> io::Result<()> {
         self.fsync(types::FsyncFlags::DATASYNC).await
-    }
-}
-
-impl AsyncRead for FileIo {
-    #[inline]
-    fn poll_read(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<BytesMut>> {
-        self.0.poll_read(cx)
-    }
-}
-
-impl AsyncWrite for FileIo {
-    #[inline]
-    fn submit(&mut self, buf: Bytes) -> io::Result<()> {
-        self.0.submit(buf)
-    }
-
-    #[inline]
-    fn poll_flush(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<Bytes>> {
-        self.0.poll_flush(cx)
     }
 }
 

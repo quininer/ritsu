@@ -50,7 +50,9 @@ impl<T> Sender<T> {
     /// Consumes the `Sender`, returning the raw pointer.
     #[inline]
     pub fn into_raw(self) -> ptr::NonNull<Sender<T>> {
-        (self.0).0.cast()
+        let ptr = (self.0).0.cast();
+        mem::forget(self);
+        ptr
     }
 
     /// # Safety

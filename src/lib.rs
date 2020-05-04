@@ -18,6 +18,7 @@ use std::time::Duration;
 use std::os::unix::io::AsRawFd;
 use std::rc::{ Rc, Weak };
 use futures_task::{ self as task, WakerRef, Waker };
+use static_assertions::const_assert_eq;
 use io_uring::opcode::{ self, types };
 use io_uring::{ squeue, cqueue, IoUring };
 use crate::waker::EventFd;
@@ -26,8 +27,7 @@ pub use crate::sync::{ Ticket, TicketFuture };
 pub type SubmissionEntry = squeue::Entry;
 pub type CompletionEntry = cqueue::Entry;
 
-const EVENT_TOKEN: u64 = 0x00;
-const TIMEOUT_TOKEN: u64 = 0x00u64.wrapping_sub(1);
+const WAKE_TOKEN: u64 = 0x0;
 
 pub struct Proactor {
     ring: Rc<RefCell<IoUring>>,
@@ -36,16 +36,9 @@ pub struct Proactor {
     timeout: Box<types::Timespec>,
 }
 
-fn cq_drain(cq: &mut cqueue::AvailableQueue) {
-    for entry in cq {
-        match entry.user_data() {
-            EVENT_TOKEN | TIMEOUT_TOKEN => (),
-            ptr => unsafe {
-                Ticket::from_raw(ptr::NonNull::new_unchecked(ptr as _))
-                    .send(entry.clone());
-            }
-        }
-    }
+#[derive(Clone)]
+pub struct Handle {
+    ring: Weak<RefCell<IoUring>>,
 }
 
 impl Proactor {
@@ -74,42 +67,46 @@ impl Proactor {
         }
     }
 
-    // TODO refactor it
     pub fn park(&mut self, dur: Option<Duration>) -> io::Result<()> {
         let mut ring = self.ring.borrow_mut();
         let (submitter, sq, cq) = ring.split();
         let (mut sq, mut cq) = (sq.available(), cq.available());
         let cq_is_not_empty = cq.len() != 0;
 
-        // handle before eventfd to avoid unnecessary wakeup
+        // clean cq
         cq_drain(&mut cq);
 
-        let mut event_e = if self.eventfd.get() {
+        let state = self.eventfd.park();
+
+        // we has events, so we don't need to wait for timeout
+        let nowait = state.is_ready()
+            || cq_is_not_empty
+            || dur == Some(Duration::from_secs(0));
+
+        let mut event_e = if !state.is_park() {
             let op = types::Target::Fd(self.eventfd.as_raw_fd());
-            let iovec_ptr = self.eventbuf.as_mut_ptr();
-            let entry = opcode::Read::new(op, iovec_ptr, 8)
+            let bufptr = self.eventbuf.as_mut_ptr();
+            let entry = opcode::Read::new(op, bufptr, 8)
                 .build()
-                .user_data(EVENT_TOKEN);
+                .user_data(WAKE_TOKEN);
             Some(entry)
         } else {
             None
         };
-
-        // we has events, so we don't need to wait for timeout
-        let nowait = event_e.is_some()
-            || cq_is_not_empty
-            || dur == Some(Duration::from_secs(0));
 
         let mut timeout_e = if let Some(dur) = dur.filter(|_| !nowait) {
             self.timeout.tv_sec = dur.as_secs() as _;
             self.timeout.tv_nsec = dur.subsec_nanos() as _;
             let entry = opcode::Timeout::new(&*self.timeout)
                 .build()
-                .user_data(TIMEOUT_TOKEN);
+                .user_data(WAKE_TOKEN);
             Some(entry)
         } else {
             None
         };
+
+        const_assert_eq!(false as usize , 0);
+        const_assert_eq!(true as usize , 1);
 
         let n = event_e.is_some() as usize + timeout_e.is_some() as usize;
         if sq.capacity() - sq.len() < n {
@@ -118,11 +115,11 @@ impl Proactor {
 
         unsafe {
             if let Some(entry) = event_e.take() {
-                let _ = sq.push(entry);
+                sq.push(entry).ok().unwrap();
             }
 
             if let Some(entry) = timeout_e.take() {
-                let _ = sq.push(entry);
+                sq.push(entry).ok().unwrap();
             }
         }
 
@@ -137,16 +134,22 @@ impl Proactor {
         cq_drain(&mut cq);
 
         // reset eventfd
-        self.eventfd.clean();
+        self.eventfd.reset();
 
         Ok(())
     }
 }
 
-
-#[derive(Clone)]
-pub struct Handle {
-    ring: Weak<RefCell<IoUring>>,
+fn cq_drain(cq: &mut cqueue::AvailableQueue) {
+    for entry in cq {
+        match entry.user_data() {
+            WAKE_TOKEN => (),
+            ptr => unsafe {
+                Ticket::from_raw(ptr::NonNull::new_unchecked(ptr as _))
+                    .send(entry.clone());
+            }
+        }
+    }
 }
 
 impl Handle {

@@ -20,6 +20,7 @@ bitflags = "1"
 bytes = "0.5"
 slab = "*"
 socket2 = "*"
+static_assertions = "1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 io-uring = { version = "0.3.1", features = [ "unstable" ] }

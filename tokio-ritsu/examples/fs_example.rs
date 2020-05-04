@@ -13,9 +13,9 @@ async fn main() -> io::Result<()> {
     let (driver, handle) = Handle::new();
 
     thread::spawn(move || {
-        let mut pool = Runtime::<Handle>::new().unwrap();
-        let raw_handle = pool.raw_handle();
-        pool.run_until(driver.register(raw_handle))
+        let mut pool = Runtime::new().unwrap();
+        let handle = pool.handle();
+        pool.run_until(driver.register(handle))
             .unwrap();
     });
 
