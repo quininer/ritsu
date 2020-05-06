@@ -46,7 +46,7 @@ trait AsyncRead {
   * A customizable buffer allocator is responsible for alloc all buffers,
     and `poll_read` will simply return completed buffer.
   * It looks like `Stream`/`Sink`, which means we don't need a new Async IO API.
-  * It can be well combined with the io-uring buffer select feature.
+  * It can be well combined with the [io-uring buffer select](https://lwn.net/Articles/815491/) feature.
   * Users cannot use their own buffers.
   * Users cannot specify buffer length.
   * The design of allocator will be another difficulty.

@@ -20,7 +20,7 @@ impl Ticket {
 
     #[inline]
     pub fn register(self, entry: SubmissionEntry) -> SubmissionEntry {
-        entry.user_data(self.0.into_raw() as _)
+        entry.user_data(self.0.into_raw().as_ptr() as _)
     }
 
     #[inline]
