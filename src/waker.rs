@@ -62,7 +62,7 @@ impl ArcWake for EventFd {
         let state = State(flag.fetch_and(!READY, atomic::Ordering::AcqRel));
 
         if !state.is_ready() && state.is_park() {
-            let _ = (fd as &File).write(&0x1u64.to_le_bytes());
+            let _ = (fd as &File).write(&0x1u64.to_ne_bytes());
 
             flag.fetch_and(!PARKING, atomic::Ordering::Release);
         }
