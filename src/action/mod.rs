@@ -1,9 +1,12 @@
+#[cfg(feature = "io")]
+pub mod io;
+
 pub mod fs;
 pub mod timeout;
 pub mod tcp;
 pub mod poll;
 
-use std::io;
+use std::io as std_io;
 use crate::sync::TicketFuture;
 use crate::SubmissionEntry;
 
@@ -14,7 +17,7 @@ pub struct Handle {
 }
 
 pub struct HandleVTable {
-    pub push: unsafe fn(*const (), SubmissionEntry) -> io::Result<TicketFuture>,
+    pub push: unsafe fn(*const (), SubmissionEntry) -> std_io::Result<TicketFuture>,
     pub clone: unsafe fn(*const ()) -> Handle,
     pub drop: unsafe fn(*const ())
 }
@@ -25,7 +28,7 @@ impl Handle {
     }
 
     #[inline]
-    pub unsafe fn push(&self, entry: SubmissionEntry) -> io::Result<TicketFuture> {
+    pub unsafe fn push(&self, entry: SubmissionEntry) -> std_io::Result<TicketFuture> {
         (self.vtable.push)(self.ptr, entry)
     }
 }

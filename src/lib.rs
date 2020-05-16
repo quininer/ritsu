@@ -1,3 +1,5 @@
+#![feature(new_uninit, maybe_uninit_ref, maybe_uninit_slice_assume_init)]
+
 #[cfg(not(feature = "loom"))]
 mod loom;
 

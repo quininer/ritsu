@@ -1,6 +1,6 @@
 use std::{ fs, io };
 use std::os::unix::io::{ AsRawFd, RawFd };
-use bytes::{ Buf, BufMut, Bytes, BytesMut };
+use bytes::{ Buf, BufMut };
 use io_uring::opcode::{ self, types };
 use crate::handle;
 
@@ -14,7 +14,7 @@ impl File {
         File { fd }
     }
 
-    pub async fn read_at(&mut self, offset: i64, mut buf: BytesMut) -> io::Result<BytesMut> {
+    pub async fn read_at<B: BufMut + 'static>(&mut self, offset: i64, mut buf: B) -> io::Result<B> {
         let bytes = buf.bytes_mut();
         let entry = opcode::Read::new(
             types::Target::Fd(self.fd.as_raw_fd()),
@@ -42,11 +42,12 @@ impl File {
         }
     }
 
-    pub async fn write_at(&mut self, offset: i64, mut buf: Bytes) -> io::Result<Bytes> {
+    pub async fn write_at<B: Buf + 'static>(&mut self, offset: i64, mut buf: B) -> io::Result<B> {
+        let bytes = buf.bytes();
         let entry = opcode::Write::new(
             types::Target::Fd(self.fd.as_raw_fd()),
-            buf.as_ptr() as *const _,
-            buf.len() as _
+            bytes.as_ptr() as *const _,
+            bytes.len() as _
         )
             .offset(offset)
             .build();

@@ -8,11 +8,12 @@ edition = "2018"
 
 [dependencies]
 tokio = { version = "0.2", features = [ "sync", "rt-core" ] }
-ritsu = { path = "..", version = "0.1" }
+ritsu = { path = "..", version = "0.1", features = [ "io" ] }
 pin-project-lite = "*"
 
 [dev-dependencies]
 tokio = { version = "0.2", features = [ "full" ] }
 lazy_static = "*"
 bytes = "0.5"
-anyhow = "*"
+anyhow = "1"
+libc = "0.2"

@@ -1,6 +1,6 @@
 use std::{ io, net, mem };
 use std::os::unix::io::{ AsRawFd, FromRawFd, RawFd };
-use bytes::{ Buf, BufMut, Bytes, BytesMut };
+use bytes::{ Buf, BufMut };
 use socket2::{ SockAddr, Socket, Domain, Type, Protocol };
 use io_uring::opcode::{ self, types };
 use crate::util::MaybeLock;
@@ -108,7 +108,7 @@ impl TcpStream {
         TcpConnector::new().connect(addr).await
     }
 
-    pub async fn read(&mut self, mut buf: BytesMut) -> io::Result<BytesMut> {
+    pub async fn read<B: BufMut + 'static>(&mut self, mut buf: B) -> io::Result<B> {
         let bytes = buf.bytes_mut();
         let entry = opcode::Read::new(
             types::Target::Fd(self.fd.as_raw_fd()),
@@ -135,11 +135,12 @@ impl TcpStream {
         }
     }
 
-    pub async fn write(&mut self, mut buf: Bytes) -> io::Result<Bytes> {
+    pub async fn write<B: Buf + 'static>(&mut self, mut buf: B) -> io::Result<B> {
+        let bytes = buf.bytes();
         let entry = opcode::Write::new(
             types::Target::Fd(self.fd.as_raw_fd()),
-            buf.as_ptr() as *const _,
-            buf.len() as _
+            bytes.as_ptr() as *const _,
+            bytes.len() as _
         )
             .build();
 

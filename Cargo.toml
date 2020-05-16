@@ -12,6 +12,7 @@ edition = "2018"
 members = [ "tokio-ritsu" ]
 
 [features]
+io = [ "tokio" ]
 
 [dependencies]
 libc = "0.2"
@@ -22,6 +23,8 @@ bitflags = "1"
 bytes = "0.5"
 socket2 = "0.3"
 static_assertions = "1"
+
+tokio = { version = "0.2", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 io-uring = { version = "0.3", features = [ "unstable" ] }

@@ -1,4 +1,4 @@
-use std::{ io, mem };
+use std::{ io as std_io, mem };
 use std::pin::Pin;
 use std::task::{ Context, Poll };
 use std::future::Future;
@@ -55,7 +55,7 @@ impl Handle {
 }
 
 impl Driver {
-    pub async fn register(mut self, handle: RawHandle) -> io::Result<()> {
+    pub async fn register(mut self, handle: RawHandle) -> std_io::Result<()> {
         while let Some(sqe) = self.0.recv().await {
             unsafe {
                 handle.raw_push(sqe)?;
@@ -71,16 +71,16 @@ fn create_handle(handle: InnerHandle) -> TaskHandle {
         push, clone, drop
     };
 
-    unsafe fn push(ptr: *const (), entry: SubmissionEntry) -> io::Result<TicketFuture> {
+    unsafe fn push(ptr: *const (), entry: SubmissionEntry) -> std_io::Result<TicketFuture> {
         let handle = Box::from_raw(ptr as *mut InnerHandle);
 
         let (ticket, fut) = Ticket::new();
 
-        let reg = handle.0.send(ticket.register(entry));
+        let ret = handle.0.send(ticket.register(entry));
         mem::forget(handle);
 
-        ret.map_err(|_| io::Error::new(
-            io::ErrorKind::Other,
+        ret.map_err(|_| std_io::Error::new(
+            std_io::ErrorKind::Other,
             "tokio-ritsu driver closed"
         ))?;
 

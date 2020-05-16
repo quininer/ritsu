@@ -1,5 +1,7 @@
-use std::mem;
+use std::{ io, mem };
 use std::ops::{ Deref, DerefMut };
+use std::mem::MaybeUninit;
+use bytes::{ Buf, BufMut };
 
 
 #[macro_export]
@@ -42,6 +44,13 @@ macro_rules! safety_await {
     }
 }
 
+pub fn ioret(ret: i32) -> io::Result<i32> {
+    if ret >= 0 {
+        Ok(ret)
+    } else {
+        Err(io::Error::from_raw_os_error(-ret))
+    }
+}
 
 pub struct MaybeLock<T> {
     lock: bool,
@@ -63,7 +72,7 @@ impl<T> MaybeLock<T> {
     }
 
     #[inline]
-    fn asssert(&self) {
+    fn assert(&self) {
         assert!(!self.lock, "This resource is locked.");
     }
 
@@ -83,7 +92,7 @@ impl<T> Deref for MaybeLock<T> {
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        self.asssert();
+        self.assert();
 
         &self.inner
     }
@@ -92,7 +101,7 @@ impl<T> Deref for MaybeLock<T> {
 impl<T> DerefMut for MaybeLock<T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.asssert();
+        self.assert();
 
         &mut self.inner
     }
@@ -105,6 +114,61 @@ impl<T> Drop for MaybeLock<T> {
                 mem::ManuallyDrop::drop(&mut self.inner);
             }
         }
+    }
+}
+
+pub struct Buffer {
+    buf: Box<[MaybeUninit<u8>]>,
+    wlen: usize,
+    rlen: usize
+}
+
+impl Buffer {
+    pub fn new(n: usize) -> Buffer {
+        Buffer {
+            buf: Box::new_uninit_slice(n),
+            wlen: 0,
+            rlen: 0
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.wlen = 0;
+        self.rlen = 0;
+    }
+}
+
+impl Buf for Buffer {
+    fn remaining(&self) -> usize {
+        self.wlen - self.rlen
+    }
+
+    fn bytes(&self) -> &[u8] {
+        unsafe {
+            MaybeUninit::slice_get_ref(&self.buf[self.rlen..self.wlen])
+        }
+    }
+
+    fn advance(&mut self, n: usize) {
+        assert!(self.rlen + n <= self.wlen);
+
+        self.rlen += n;
+    }
+}
+
+impl BufMut for Buffer {
+    fn remaining_mut(&self) -> usize {
+        self.buf.len() - self.wlen
+    }
+
+    unsafe fn advance_mut(&mut self, n: usize) {
+        assert!(self.wlen + n <= self.buf.len());
+
+        self.wlen += n;
+    }
+
+    fn bytes_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+        &mut self.buf[self.wlen..]
     }
 }
 

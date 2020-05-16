@@ -48,12 +48,16 @@ fn main() -> io::Result<()> {
                         break
                     }
 
-                    let mut buf = buf.freeze();
+                    let mut buf = buf;
                     count += buf.len();
 
                     while buf.has_remaining() {
                         buf = stream.write(buf).await?;
                     }
+
+                    bufpool
+                        .borrow_mut()
+                        .push(buf);
                 }
 
                 println!("connect {} count: {}", addr, count);
