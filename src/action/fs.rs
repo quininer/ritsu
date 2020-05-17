@@ -2,7 +2,7 @@ use std::{ fs, io };
 use std::os::unix::io::{ AsRawFd, RawFd };
 use bytes::{ Buf, BufMut };
 use io_uring::opcode::{ self, types };
-use crate::handle;
+use crate::{ handle, util::ioret };
 
 
 pub struct File {
@@ -29,17 +29,13 @@ impl File {
             unsafe { handle::push(entry) }
         };
 
-        let ret = ret?.result();
+        let n = ioret(ret?.result())?;
 
-        if ret >= 0 {
-            unsafe {
-                buf.advance_mut(ret as _);
-            }
-
-            Ok(buf)
-        } else {
-            Err(io::Error::from_raw_os_error(-ret))
+        unsafe {
+            buf.advance_mut(n as usize);
         }
+
+        Ok(buf)
     }
 
     pub async fn write_at<B: Buf + 'static>(&mut self, offset: i64, mut buf: B) -> io::Result<B> {
@@ -56,14 +52,10 @@ impl File {
             [ buf ];
             unsafe { handle::push(entry) }
         };
-        let ret = ret?.result();
 
-        if ret >= 0 {
-            buf.advance(ret as _);
-            Ok(buf)
-        } else {
-            Err(io::Error::from_raw_os_error(-ret))
-        }
+        let n = ioret(ret?.result())?;
+        buf.advance(n as usize);
+        Ok(buf)
     }
 
     async fn fsync(&self, flag: types::FsyncFlags) -> io::Result<()> {
@@ -75,13 +67,10 @@ impl File {
         let ret = safety_await!{
             unsafe { handle::push(entry) }
         };
-        let ret = ret?.result();
 
-        if ret >= 0 {
-            Ok(())
-        } else {
-            Err(io::Error::from_raw_os_error(-ret))
-        }
+        ioret(ret?.result())?;
+
+        Ok(())
     }
 
     #[inline]

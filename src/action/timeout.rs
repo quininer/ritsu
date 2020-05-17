@@ -2,7 +2,7 @@ use std::io;
 use std::time::Duration;
 use io_uring::opcode::{ self, types };
 use crate::handle;
-use crate::util::MaybeLock;
+use crate::util::{ MaybeLock, ioret };
 
 
 pub struct Timer {
@@ -25,13 +25,10 @@ impl Timer {
             ( self.timespec );
             unsafe { handle::push(entry) }
         };
-        let ret = ret?.result();
 
-        if ret >= 0 {
-            Ok(())
-        } else {
-            Err(io::Error::from_raw_os_error(-ret))
-        }
+        ioret(ret?.result())?;
+
+        Ok(())
     }
 
     // TODO delay_until

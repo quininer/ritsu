@@ -3,7 +3,7 @@ use std::os::unix::io::{ AsRawFd, FromRawFd, RawFd };
 use bytes::{ Buf, BufMut };
 use socket2::{ SockAddr, Socket, Domain, Type, Protocol };
 use io_uring::opcode::{ self, types };
-use crate::util::MaybeLock;
+use crate::util::{ MaybeLock, ioret };
 use crate::handle;
 
 
@@ -41,20 +41,17 @@ impl TcpListener {
             ( self.sockaddr );
             unsafe { handle::push(entry) }
         };
-        let ret = ret?.result();
 
-        if ret >= 0 {
-            unsafe {
-                let stream = net::TcpStream::from_raw_fd(ret);
-                let addr = SockAddr::from_raw_parts(&self.sockaddr.0, self.sockaddr.1);
+        let fd = ioret(ret?.result())?;
 
-                let stream = TcpStream::from_std(stream);
-                let addr = addr.as_std().unwrap();
+        unsafe {
+            let stream = net::TcpStream::from_raw_fd(fd);
+            let addr = SockAddr::from_raw_parts(&self.sockaddr.0, self.sockaddr.1);
 
-                Ok((stream, addr))
-            }
-        } else {
-            Err(io::Error::from_raw_os_error(-ret))
+            let stream = TcpStream::from_std(stream);
+            let addr = addr.as_std().unwrap();
+
+            Ok((stream, addr))
         }
     }
 }
@@ -88,13 +85,10 @@ impl TcpConnector {
             unsafe { handle::push(entry) }
         };
         self.sockaddr.take();
-        let ret = ret?.result();
 
-        if ret >= 0 {
-            Ok(TcpStream { fd: stream.into_tcp_stream() })
-        } else {
-            Err(io::Error::from_raw_os_error(-ret))
-        }
+        ioret(ret?.result())?;
+
+        Ok(TcpStream { fd: stream.into_tcp_stream() })
     }
 }
 
@@ -122,17 +116,13 @@ impl TcpStream {
             unsafe { handle::push(entry) }
         };
 
-        let ret = ret?.result();
+        let n = ioret(ret?.result())?;
 
-        if ret >= 0 {
-            unsafe {
-                buf.advance_mut(ret as _);
-            }
-
-            Ok(buf)
-        } else {
-            Err(io::Error::from_raw_os_error(-ret))
+        unsafe {
+            buf.advance_mut(n as _);
         }
+
+        Ok(buf)
     }
 
     pub async fn write<B: Buf + 'static>(&mut self, mut buf: B) -> io::Result<B> {
@@ -148,14 +138,10 @@ impl TcpStream {
             [ buf ];
             unsafe { handle::push(entry) }
         };
-        let ret = ret?.result();
 
-        if ret >= 0 {
-            buf.advance(ret as _);
-            Ok(buf)
-        } else {
-            Err(io::Error::from_raw_os_error(-ret))
-        }
+        let n = ioret(ret?.result())?;
+        buf.advance(n as _);
+        Ok(buf)
     }
 }
 

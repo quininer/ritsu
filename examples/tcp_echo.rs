@@ -33,8 +33,8 @@ fn main() -> io::Result<()> {
                         .borrow_mut()
                         .pop()
                         .unwrap_or_else(BytesMut::new);
-                    if buf.capacity() < 2048 {
-                        buf.reserve(2048 - buf.capacity());
+                    if buf.capacity() < 512 {
+                        buf.reserve(512 - buf.capacity());
                     }
 
                     let buf = stream

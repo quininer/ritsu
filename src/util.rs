@@ -72,11 +72,6 @@ impl<T> MaybeLock<T> {
     }
 
     #[inline]
-    fn assert(&self) {
-        assert!(!self.lock, "This resource is locked.");
-    }
-
-    #[inline]
     pub fn start(&mut self) {
         self.lock = true;
     }
@@ -92,8 +87,6 @@ impl<T> Deref for MaybeLock<T> {
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        self.assert();
-
         &self.inner
     }
 }
@@ -101,8 +94,6 @@ impl<T> Deref for MaybeLock<T> {
 impl<T> DerefMut for MaybeLock<T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.assert();
-
         &mut self.inner
     }
 }
