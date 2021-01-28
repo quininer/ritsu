@@ -1,4 +1,3 @@
-use std::fs::File;
 use std::sync::{ atomic, Arc };
 use std::io::{ self, Write };
 use std::os::unix::io::{ FromRawFd, AsRawFd, RawFd };
@@ -8,7 +7,7 @@ use futures_task::ArcWake;
 #[derive(Debug)]
 pub struct EventFd {
     flag: atomic::AtomicU8,
-    fd: File
+    fd: RawFd
 }
 
 #[derive(Copy, Clone)]
@@ -19,12 +18,12 @@ const PARKING: u8 = 0b10;
 
 impl EventFd {
     pub fn new() -> io::Result<EventFd> {
-        let fd = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC) };
+        let fd = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC | libc::EFD_NONBLOCK) };
 
         if fd != -1 {
             Ok(EventFd {
-                flag: atomic::AtomicU8::new(0x00),
-                fd: unsafe { File::from_raw_fd(fd) }
+                fd,
+                flag: atomic::AtomicU8::new(READY),
             })
         } else {
             Err(io::Error::last_os_error())
@@ -33,8 +32,7 @@ impl EventFd {
 
     #[inline]
     pub fn park(&self) -> State {
-        let state = self.flag.fetch_or(PARKING, atomic::Ordering::AcqRel);
-        State(state)
+        State(self.flag.fetch_or(PARKING, atomic::Ordering::AcqRel))
     }
 
     #[inline]
@@ -50,21 +48,25 @@ impl State {
     }
 
     #[inline]
-    pub fn is_park(self) -> bool {
+    pub fn is_parking(self) -> bool {
         self.0 & PARKING == PARKING
     }
 }
 
 impl ArcWake for EventFd {
     fn wake_by_ref(arc_self: &Arc<Self>) {
-        let EventFd { flag, fd } = &**arc_self;
+        let eventfd = &**arc_self;
 
-        let state = State(flag.fetch_and(!READY, atomic::Ordering::AcqRel));
+        let state = State(eventfd.flag.fetch_and(!READY, atomic::Ordering::AcqRel));
 
-        if !state.is_ready() && state.is_park() {
-            let _ = (fd as &File).write(&0x1u64.to_ne_bytes());
+        if !state.is_ready() && state.is_parking() {
+            let buf = 0x1u64.to_ne_bytes();
 
-            flag.fetch_and(!PARKING, atomic::Ordering::Release);
+            unsafe {
+                libc::write(eventfd.fd, buf.as_ptr().cast(), buf.len());
+            }
+
+            eventfd.flag.fetch_and(!PARKING, atomic::Ordering::Release);
         }
     }
 }
@@ -72,6 +74,14 @@ impl ArcWake for EventFd {
 impl AsRawFd for EventFd {
     #[inline]
     fn as_raw_fd(&self) -> RawFd {
-        self.fd.as_raw_fd()
+        self.fd
+    }
+}
+
+impl Drop for EventFd {
+    fn drop(&mut self) {
+        unsafe {
+            libc::close(self.fd);
+        }
     }
 }

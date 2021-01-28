@@ -8,27 +8,17 @@ edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[workspace]
-members = [ "tokio-ritsu", "ritsu-hyper" ]
-
 [features]
-default = [ "io" ]
-io = [ "tokio", "tokio/io-util" ]
 
 [dependencies]
 libc = "0.2"
-futures-task = "0.3"
-futures-util = "0.3"
 pin-project-lite = "0.1"
 bitflags = "1"
-bytes = "0.5"
-socket2 = "0.3"
-static_assertions = "1"
-
-tokio = { version = "0.2", optional = true }
+bytes = "1"
+futures-task = "0.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-io-uring = { version = "0.3", features = [ "unstable" ] }
+io-uring = { version = "0.5.0-alpha.2", features = [ "unstable" ] }
 
 [dev-dependencies]
 anyhow = "1"
