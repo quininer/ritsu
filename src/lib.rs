@@ -60,7 +60,7 @@ impl Proactor {
         let cq_is_not_empty = cq.len() != 0;
 
         // clean cq
-        cq_drain(&mut cq);
+        cq_consume(&mut cq);
 
         let state = self.eventfd.park();
 
@@ -85,22 +85,30 @@ impl Proactor {
             }
         };
 
-        if nowait {
-            submitter.submit()?;
-        } else if let Some(dur) = dur {
-            let timespec = types::Timespec::new()
-                .sec(dur.as_secs())
-                .nsec(dur.subsec_nanos());
-            let args = types::Args::new()
-                .timespec(&timespec);
-            submitter.submit_with_args(1, &args)?;
-        } else {
-            submitter.submit_and_wait(1)?;
+        while let Err(err) =
+            if nowait {
+                submitter.submit()
+            } else if let Some(dur) = dur {
+                let timespec = types::Timespec::new()
+                    .sec(dur.as_secs())
+                    .nsec(dur.subsec_nanos());
+                let args = types::SubmitArgs::new()
+                    .timespec(&timespec);
+                submitter.submit_with_args(1, &args)
+            } else {
+                submitter.submit_and_wait(1)
+            }
+        {
+            if err.raw_os_error() == Some(libc::EBUSY) {
+                cq.sync();
+                cq_consume(&mut cq);
+            } else {
+                return Err(err);
+            }
         }
 
         cq.sync();
-
-        cq_drain(&mut cq);
+        cq_consume(&mut cq);
 
         // reset eventfd
         self.eventfd.reset();
@@ -133,7 +141,7 @@ impl Proactor {
 }
 
 
-fn cq_drain(cq: &mut cqueue::AvailableQueue) {
+fn cq_consume(cq: &mut cqueue::AvailableQueue) {
     for entry in cq {
         match entry.user_data() {
             WAKE_TOKEN => (),
@@ -150,20 +158,18 @@ fn sq_submit(
     sq: &mut squeue::AvailableQueue,
     cq: &mut cqueue::AvailableQueue
 ) -> io::Result<()> {
-    loop {
-        sq.sync();
+    sq.sync();
 
-        if sq.is_empty() {
-            break
-        }
+    if sq.is_empty() {
+        return Ok(())
+    }
 
-        match submitter.submit() {
-            Ok(_) => (),
-            Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => {
-                cq_drain(cq);
-                submitter.submit()?;
-            },
-            Err(err) => return Err(err)
+    while let Err(err) = submitter.submit() {
+        if err.raw_os_error() == Some(libc::EBUSY) {
+            cq.sync();
+            cq_consume(cq);
+        } else {
+            return Err(err);
         }
     }
 
