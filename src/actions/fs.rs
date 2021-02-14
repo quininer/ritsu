@@ -7,7 +7,9 @@ use crate::handle::Handle;
 use crate::actions::action;
 
 
-pub async fn read_buf(handle: &dyn Handle, fd: File, mut buf: BytesMut) -> (File, io::Result<BytesMut>) {
+pub async fn read_buf(handle: &dyn Handle, fd: File, mut buf: BytesMut)
+    -> (File, io::Result<BytesMut>)
+{
     let uninit_buf = buf.chunk_mut();
 
     let read_e = opcode::Read::new(
