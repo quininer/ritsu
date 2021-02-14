@@ -1,6 +1,6 @@
+use std::io;
 use std::sync::{ atomic, Arc };
-use std::io::{ self, Write };
-use std::os::unix::io::{ FromRawFd, AsRawFd, RawFd };
+use std::os::unix::io::{ AsRawFd, RawFd };
 use futures_task::ArcWake;
 
 

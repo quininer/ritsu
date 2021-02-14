@@ -1,6 +1,8 @@
 mod loom;
 mod ticket;
 mod waker;
+mod handle;
+pub mod actions;
 
 use std::{ io, mem };
 use std::rc::Rc;
@@ -12,23 +14,25 @@ use std::time::Duration;
 use std::future::Future;
 use std::task::{ Context, Poll };
 use std::os::unix::io::AsRawFd;
-use futures_task::{ self as task, WakerRef, Waker };
+use futures_task as task;
 use io_uring::{
     types, opcode, squeue, cqueue,
     IoUring, Submitter
 };
 use waker::EventFd;
 use ticket::Ticket;
+pub use ticket::TicketFuture;
+pub use handle::Handle;
 
 
-#[derive(Clone)]
 pub struct Proactor {
     ring: Rc<RefCell<IoUring>>,
     eventbuf: mem::ManuallyDrop<Box<[u8; 8]>>,
     eventfd: Arc<EventFd>,
 }
 
-pub struct Handle {
+#[derive(Clone)]
+pub struct LocalHandle {
     ring: Rc<RefCell<IoUring>>
 }
 
@@ -46,8 +50,8 @@ impl Proactor {
         })
     }
 
-    pub fn handle(&self) -> Handle {
-        Handle {
+    pub fn handle(&self) -> LocalHandle {
+        LocalHandle {
             ring: Rc::clone(&self.ring)
         }
     }
