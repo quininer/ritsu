@@ -39,6 +39,11 @@ impl EventFd {
     pub fn reset(&self) {
         self.flag.fetch_and(!READY, atomic::Ordering::Release);
     }
+
+    #[inline]
+    pub fn load(&self) -> State {
+        State(self.flag.load(atomic::Ordering::Acquire))
+    }
 }
 
 impl State {

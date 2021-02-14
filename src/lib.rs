@@ -4,7 +4,7 @@ mod waker;
 mod handle;
 pub mod actions;
 
-use std::{ io, mem };
+use std::io;
 use std::rc::Rc;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -27,7 +27,7 @@ pub use handle::Handle;
 
 pub struct Proactor {
     ring: Rc<RefCell<IoUring>>,
-    eventbuf: mem::ManuallyDrop<Box<[u8; 8]>>,
+    eventbuf: Box<[u8; 8]>,
     eventfd: Arc<EventFd>,
 }
 
@@ -45,7 +45,7 @@ impl Proactor {
 
         Ok(Proactor {
             ring: Rc::new(RefCell::new(ring)),
-            eventbuf: mem::ManuallyDrop::new(Box::new([0; 8])),
+            eventbuf: Box::new([0; 8]),
             eventfd: Arc::new(eventfd)
         })
     }
@@ -178,4 +178,47 @@ fn sq_submit(
     }
 
     Ok(())
+}
+
+impl Drop for Proactor {
+    fn drop(&mut self) {
+        if self.eventfd.load().is_parking() {
+            let mut ring = self.ring.borrow_mut();
+            proactor_drop(&mut ring).unwrap();
+        }
+    }
+}
+
+#[cold]
+fn proactor_drop(ring: &mut IoUring) -> io::Result<()> {
+    let (mut submitter, sq, cq) = ring.split();
+    let mut sq = sq.available();
+    let mut cq = cq.available();
+
+    for entry in &mut cq {
+        if entry.user_data() == WAKE_TOKEN {
+            return Ok(());
+        }
+    }
+
+    let mut entry = opcode::AsyncCancel::new(WAKE_TOKEN).build();
+
+    unsafe {
+        while let Err(entry2) = sq.push(entry) {
+            entry = entry2;
+            sq_submit(&mut submitter, &mut sq, &mut cq)?;
+        }
+    }
+
+    loop {
+        submitter.submit_and_wait(1)?;
+
+        cq.sync();
+
+        for entry in &mut cq {
+            if entry.user_data() == WAKE_TOKEN {
+                return Ok(());
+            }
+        }
+    }
 }
