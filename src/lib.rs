@@ -182,7 +182,10 @@ fn sq_submit(
 
 impl Drop for Proactor {
     fn drop(&mut self) {
-        if self.eventfd.load().is_parking() {
+        let state = self.eventfd.load();
+
+        /// FIXME parking maybe have race ??
+        if state.is_ready() && state.is_parking() {
             let mut ring = self.ring.borrow_mut();
             proactor_drop(&mut ring).unwrap();
         }

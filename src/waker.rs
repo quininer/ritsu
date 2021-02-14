@@ -62,7 +62,7 @@ impl ArcWake for EventFd {
     fn wake_by_ref(arc_self: &Arc<Self>) {
         let eventfd = &**arc_self;
 
-        let state = State(eventfd.flag.fetch_and(!READY, atomic::Ordering::AcqRel));
+        let state = State(eventfd.flag.fetch_or(READY, atomic::Ordering::AcqRel));
 
         if !state.is_ready() && state.is_parking() {
             let buf = 0x1u64.to_ne_bytes();
