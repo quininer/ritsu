@@ -1,6 +1,5 @@
-use std::env;
+use std::{ io, env };
 use std::fs::File;
-use std::io::{ self, Write };
 use bytes::BytesMut;
 use anyhow::Context;
 use ritsu::Proactor;
@@ -17,20 +16,23 @@ fn main() -> anyhow::Result<()> {
 
     proactor.block_on(async move {
         let mut fd = File::open(target)?;
-        let stdout = io::stdout();
-        let mut stdout = stdout.lock();
-        let mut buf = BytesMut::with_capacity(512 << 10);
+        let mut stdout = io::stdout();
+        let mut buf = BytesMut::with_capacity(32 << 10);
 
         loop {
-            let (fd2, ret) = actions::io::read_buf(&handle, fd, buf).await;
+            let (fd2, buf2) =
+                actions::io::read_buf(&handle, &mut Some(fd), buf, None).await?;
             fd = fd2;
-            buf = ret?;
+            buf = buf2;
 
             if buf.is_empty() {
                 break
             }
 
-            stdout.write_all(&buf)?;
+            let (stdout2, buf2) =
+                actions::io::write_buf(&handle, &mut Some(stdout), buf, None).await?;
+            stdout = stdout2;
+            buf = buf2;
 
             buf.clear();
         }
