@@ -1,4 +1,4 @@
-pub mod fs;
+pub mod io;
 
 use std::pin::Pin;
 use std::future::Future;

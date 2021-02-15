@@ -1,5 +1,4 @@
 use std::io;
-use std::fs::File;
 use std::os::unix::io::AsRawFd;
 use bytes::{ BufMut, BytesMut };
 use io_uring::{ types, opcode };
@@ -7,8 +6,15 @@ use crate::handle::Handle;
 use crate::actions::action;
 
 
-pub async fn read_buf(handle: &dyn Handle, fd: File, mut buf: BytesMut)
-    -> (File, io::Result<BytesMut>)
+pub unsafe trait StableAsRawFd: AsRawFd + 'static {}
+
+unsafe impl StableAsRawFd for std::fs::File {}
+unsafe impl StableAsRawFd for std::io::Stdout {}
+unsafe impl StableAsRawFd for std::io::Stderr {}
+unsafe impl StableAsRawFd for std::net::TcpStream {}
+
+pub async fn read_buf<T: StableAsRawFd>(handle: &dyn Handle, fd: T, mut buf: BytesMut)
+    -> (T, io::Result<BytesMut>)
 {
     let uninit_buf = buf.chunk_mut();
 
