@@ -1,47 +1,104 @@
 use std::io;
 use std::os::unix::io::AsRawFd;
-use bytes::{ BufMut, BytesMut };
+use bytes::{ Buf, BufMut };
 use io_uring::{ types, opcode };
 use crate::handle::Handle;
 use crate::actions::action;
 
 
-pub unsafe trait StableAsRawFd: AsRawFd + 'static {}
+pub unsafe trait TrustedAsRawFd: AsRawFd + 'static {}
 
-unsafe impl StableAsRawFd for std::fs::File {}
-unsafe impl StableAsRawFd for std::io::Stdout {}
-unsafe impl StableAsRawFd for std::io::Stderr {}
-unsafe impl StableAsRawFd for std::net::TcpStream {}
+unsafe impl TrustedAsRawFd for std::fs::File {}
+unsafe impl TrustedAsRawFd for std::io::Stdout {}
+unsafe impl TrustedAsRawFd for std::io::Stderr {}
+unsafe impl TrustedAsRawFd for std::net::TcpStream {}
 
-pub async fn read_buf<T: StableAsRawFd>(handle: &dyn Handle, fd: T, mut buf: BytesMut)
-    -> (T, io::Result<BytesMut>)
+pub async fn read_buf<T: TrustedAsRawFd, B: BufMut + 'static>(
+    handle: &dyn Handle,
+    fd: &mut Option<T>,
+    mut buf: B,
+    offset: Option<u32>
+)
+    -> io::Result<(T, B)>
 {
-    let uninit_buf = buf.chunk_mut();
+    let fd2 = match fd.take() {
+        Some(fd) => fd,
+        None => return Err(not_found())
+    };
+
+    let chunk = buf.chunk_mut();
 
     let read_e = opcode::Read::new(
-        types::Fd(fd.as_raw_fd()),
-        uninit_buf.as_mut_ptr(),
-        uninit_buf.len() as _
+        types::Fd(fd2.as_raw_fd()),
+        chunk.as_mut_ptr(),
+        chunk.len() as _
     )
-        .offset(-1)
+        .offset(offset.map(|offset| offset as _).unwrap_or(-1))
         .build();
 
-    drop(uninit_buf);
+    drop(chunk);
 
-    let ((fd, mut buf), cqe) = unsafe {
-        action(handle, (fd, buf), read_e).await
+    let ((fd2, mut buf), cqe) = unsafe {
+        action(handle, (fd2, buf), read_e).await
     };
 
     let ret = cqe.result();
-    let ret = if ret >= 0 {
+    if ret >= 0 {
         unsafe {
             buf.advance_mut(ret as _);
         }
 
-        Ok(buf)
+        Ok((fd2, buf))
     } else {
+        *fd = Some(fd2);
         Err(io::Error::from_raw_os_error(-ret))
+    }
+}
+
+pub async fn write_buf<T: TrustedAsRawFd, B: Buf + 'static>(
+    handle: &dyn Handle,
+    fd: &mut Option<T>,
+    buf: B,
+    offset: Option<u32>
+)
+    -> io::Result<(T, B)>
+{
+    let fd2 = match fd.take() {
+        Some(fd) => fd,
+        None => return Err(not_found())
     };
 
-    (fd, ret)
+    let chunk = buf.chunk();
+
+    let write_e = opcode::Write::new(
+        types::Fd(fd2.as_raw_fd()),
+        chunk.as_ptr(),
+        chunk.len() as _
+    )
+        .offset(offset.map(|offset| offset as _).unwrap_or(-1))
+        .build();
+
+    drop(chunk);
+
+    let ((fd2, mut buf), cqe) = unsafe {
+        action(handle, (fd2, buf), write_e).await
+    };
+
+    let ret = cqe.result();
+    if ret >= 0 {
+        buf.advance(ret as _);
+
+        Ok((fd2, buf))
+    } else {
+        *fd = Some(fd2);
+        Err(io::Error::from_raw_os_error(-ret))
+    }
+}
+
+#[cold]
+fn not_found() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::NotFound,
+        "No available fd was found"
+    )
 }
