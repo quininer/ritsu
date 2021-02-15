@@ -18,7 +18,7 @@ impl Handle for LocalHandle {
 
         while let Err(entry2) = sq.push(entry) {
             entry = entry2;
-            sq_submit(&mut submitter, &mut sq, &mut cq.available()).unwrap();
+            sq_submit(&mut submitter, &mut sq, &mut cq.available(), &self.eventfd).unwrap();
         }
 
         rx

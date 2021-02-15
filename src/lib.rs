@@ -33,10 +33,12 @@ pub struct Proactor {
 
 #[derive(Clone)]
 pub struct LocalHandle {
-    ring: Rc<RefCell<IoUring>>
+    ring: Rc<RefCell<IoUring>>,
+    eventfd: Arc<EventFd>,
 }
 
 const WAKE_TOKEN: u64 = 0x0;
+const EMPTY_TOKEN: u64 = 0x1;
 
 impl Proactor {
     pub fn new() -> io::Result<Proactor> {
@@ -52,7 +54,8 @@ impl Proactor {
 
     pub fn handle(&self) -> LocalHandle {
         LocalHandle {
-            ring: Rc::clone(&self.ring)
+            ring: Rc::clone(&self.ring),
+            eventfd: Arc::clone(&self.eventfd)
         }
     }
 
@@ -64,7 +67,7 @@ impl Proactor {
         let cq_is_not_empty = cq.len() != 0;
 
         // clean cq
-        cq_consume(&mut cq);
+        cq_consume(&mut cq, &self.eventfd);
 
         let state = self.eventfd.park();
 
@@ -81,7 +84,7 @@ impl Proactor {
                 .user_data(WAKE_TOKEN);
 
             if sq.is_full() {
-                sq_submit(&mut submitter, &mut sq, &mut cq)?;
+                sq_submit(&mut submitter, &mut sq, &mut cq, &self.eventfd)?;
             }
 
             unsafe {
@@ -105,14 +108,14 @@ impl Proactor {
         {
             if err.raw_os_error() == Some(libc::EBUSY) {
                 cq.sync();
-                cq_consume(&mut cq);
+                cq_consume(&mut cq, &self.eventfd);
             } else {
                 return Err(err);
             }
         }
 
         cq.sync();
-        cq_consume(&mut cq);
+        cq_consume(&mut cq, &self.eventfd);
 
         // reset eventfd
         self.eventfd.reset();
@@ -124,7 +127,7 @@ impl Proactor {
         {
             let mut ring = self.ring.borrow_mut();
             let (mut submitter, sq, cq) = ring.split();
-            sq_submit(&mut submitter, &mut sq.available(), &mut cq.available())?;
+            sq_submit(&mut submitter, &mut sq.available(), &mut cq.available(), &self.eventfd)?;
         }
 
         loop {
@@ -145,10 +148,11 @@ impl Proactor {
 }
 
 
-fn cq_consume(cq: &mut cqueue::AvailableQueue) {
+fn cq_consume(cq: &mut cqueue::AvailableQueue, eventfd: &EventFd) {
     for entry in cq {
         match entry.user_data() {
-            WAKE_TOKEN => (),
+            WAKE_TOKEN => eventfd.unpark(),
+            EMPTY_TOKEN => (),
             ptr => unsafe {
                 Ticket::from_raw(NonNull::new_unchecked(ptr as _))
                     .send(entry);
@@ -160,7 +164,8 @@ fn cq_consume(cq: &mut cqueue::AvailableQueue) {
 fn sq_submit(
     submitter: &mut Submitter,
     sq: &mut squeue::AvailableQueue,
-    cq: &mut cqueue::AvailableQueue
+    cq: &mut cqueue::AvailableQueue,
+    eventfd: &EventFd
 ) -> io::Result<()> {
     sq.sync();
 
@@ -171,7 +176,7 @@ fn sq_submit(
     while let Err(err) = submitter.submit() {
         if err.raw_os_error() == Some(libc::EBUSY) {
             cq.sync();
-            cq_consume(cq);
+            cq_consume(cq, eventfd);
         } else {
             return Err(err);
         }
@@ -182,18 +187,15 @@ fn sq_submit(
 
 impl Drop for Proactor {
     fn drop(&mut self) {
-        let state = self.eventfd.load();
-
-        /// FIXME parking maybe have race ??
-        if state.is_ready() && state.is_parking() {
+        if self.eventfd.load().is_parking() {
             let mut ring = self.ring.borrow_mut();
-            proactor_drop(&mut ring).unwrap();
+            proactor_drop(&mut ring, &self.eventfd).unwrap();
         }
     }
 }
 
 #[cold]
-fn proactor_drop(ring: &mut IoUring) -> io::Result<()> {
+fn proactor_drop(ring: &mut IoUring, eventfd: &EventFd) -> io::Result<()> {
     let (mut submitter, sq, cq) = ring.split();
     let mut sq = sq.available();
     let mut cq = cq.available();
@@ -204,17 +206,21 @@ fn proactor_drop(ring: &mut IoUring) -> io::Result<()> {
         }
     }
 
-    let mut entry = opcode::AsyncCancel::new(WAKE_TOKEN).build();
+    let mut cancel_e = opcode::AsyncCancel::new(WAKE_TOKEN).build();
 
     unsafe {
-        while let Err(entry2) = sq.push(entry) {
-            entry = entry2;
-            sq_submit(&mut submitter, &mut sq, &mut cq)?;
+        while let Err(cancel_e2) = sq.push(cancel_e) {
+            cancel_e = cancel_e2;
+            sq_submit(&mut submitter, &mut sq, &mut cq, eventfd)?;
         }
     }
 
     loop {
-        submitter.submit_and_wait(1)?;
+        match submitter.submit_and_wait(1) {
+            Ok(_) => (),
+            Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => (),
+            Err(err) => return Err(err)
+        }
 
         cq.sync();
 
