@@ -36,6 +36,11 @@ impl EventFd {
     }
 
     #[inline]
+    pub fn unpark(&self) {
+        self.flag.fetch_and(!PARKING, atomic::Ordering::Release);
+    }
+
+    #[inline]
     pub fn reset(&self) {
         self.flag.fetch_and(!READY, atomic::Ordering::Release);
     }
@@ -70,8 +75,6 @@ impl ArcWake for EventFd {
             unsafe {
                 libc::write(eventfd.fd, buf.as_ptr().cast(), buf.len());
             }
-
-            eventfd.flag.fetch_and(!PARKING, atomic::Ordering::Release);
         }
     }
 }
