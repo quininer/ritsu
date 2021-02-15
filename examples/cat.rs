@@ -22,7 +22,7 @@ fn main() -> anyhow::Result<()> {
         let mut buf = BytesMut::with_capacity(512 << 10);
 
         loop {
-            let (fd2, ret) = actions::fs::read_buf(&handle, fd, buf).await;
+            let (fd2, ret) = actions::io::read_buf(&handle, fd, buf).await;
             fd = fd2;
             buf = ret?;
 
