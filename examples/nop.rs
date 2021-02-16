@@ -1,0 +1,24 @@
+use tokio::task::{ LocalSet, yield_now };
+use ritsu::Proactor;
+use ritsu::actions;
+
+fn main() -> anyhow::Result<()> {
+    let mut proactor = Proactor::new()?;
+    let handle = proactor.handle();
+
+    let taskset = LocalSet::new();
+
+    proactor.block_on(async move {
+        for _ in 0..500 {
+            for _ in 0..500 {
+                taskset.spawn_local(actions::nop(handle.clone()));
+            }
+
+            yield_now().await;
+        }
+
+        taskset.await;
+    })?;
+
+    Ok(())
+}

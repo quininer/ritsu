@@ -207,7 +207,9 @@ fn proactor_drop(ring: &mut IoUring, eventfd: &EventFd) -> io::Result<()> {
         }
     }
 
-    let mut cancel_e = opcode::AsyncCancel::new(WAKE_TOKEN).build();
+    let mut cancel_e = opcode::AsyncCancel::new(WAKE_TOKEN)
+        .build()
+        .user_data(EMPTY_TOKEN);
 
     unsafe {
         while let Err(cancel_e2) = sq.push(cancel_e) {
@@ -215,6 +217,8 @@ fn proactor_drop(ring: &mut IoUring, eventfd: &EventFd) -> io::Result<()> {
             sq_submit(&mut submitter, &mut sq, &mut cq, eventfd)?;
         }
     }
+
+    sq.sync();
 
     loop {
         match submitter.submit_and_wait(1) {

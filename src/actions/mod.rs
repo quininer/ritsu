@@ -63,3 +63,13 @@ pub fn cancel<H: Handle, T: 'static>(handle: H, action: Action<T>) {
         handle.push(cancel_e);
     }
 }
+
+pub async fn nop<H: Handle>(handle: H) {
+    use io_uring::opcode;
+
+    let nop_e = opcode::Nop::new().build();
+
+    unsafe {
+        action(handle, (), nop_e).await;
+    }
+}

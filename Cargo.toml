@@ -22,3 +22,4 @@ io-uring = { version = "0.5.0-alpha.3", features = [ "unstable" ] }
 
 [dev-dependencies]
 anyhow = "1"
+tokio = { version = "1", features = [ "rt" ] }
