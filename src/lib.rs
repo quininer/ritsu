@@ -19,8 +19,7 @@ use io_uring::{
     types, opcode, squeue, cqueue,
     IoUring, Submitter
 };
-use ticket::Ticket;
-pub use ticket::TicketFuture;
+pub use ticket::{ Ticket, TicketFuture };
 pub use handle::Handle;
 pub use waker::EventFd;
 

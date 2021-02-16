@@ -1,17 +1,13 @@
 use io_uring::squeue;
-use crate::ticket::{ Ticket, TicketFuture };
 use crate::{ LocalHandle, sq_submit };
 
 
 pub trait Handle {
-    unsafe fn push(&self, entry: squeue::Entry) -> TicketFuture;
+    unsafe fn push(&self, entry: squeue::Entry);
 }
 
 impl Handle for LocalHandle {
-    unsafe fn push(&self, entry: squeue::Entry) -> TicketFuture {
-        let (tx, rx) = Ticket::new();
-        let mut entry = tx.register(entry);
-
+    unsafe fn push(&self, mut entry: squeue::Entry) {
         let mut ring = self.ring.borrow_mut();
         let (mut submitter, sq, cq) = ring.split();
         let mut sq = sq.available();
@@ -20,7 +16,5 @@ impl Handle for LocalHandle {
             entry = entry2;
             sq_submit(&mut submitter, &mut sq, &mut cq.available(), &self.eventfd).unwrap();
         }
-
-        rx
     }
 }

@@ -8,7 +8,7 @@ use std::mem::MaybeUninit;
 use std::task::{ Context, Poll };
 use io_uring::{ squeue, cqueue };
 use pin_project_lite::pin_project;
-use crate::ticket::TicketFuture;
+use crate::ticket::{ Ticket, TicketFuture };
 use crate::handle::Handle;
 
 
@@ -23,7 +23,8 @@ pin_project!{
 pub unsafe fn action<T: 'static>(handle: &dyn Handle, value: T, entry: squeue::Entry)
     -> Action<T>
 {
-    let ticket = handle.push(entry);
+    let (tx, ticket) = Ticket::new();
+    handle.push(tx.register(entry));
     let hold = MaybeUninit::new(value);
 
     Action { hold, ticket }
