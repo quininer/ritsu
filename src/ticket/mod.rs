@@ -54,3 +54,15 @@ impl Future for TicketFuture {
         }
     }
 }
+
+impl TicketFuture {
+    #[inline]
+    pub fn is_closed(&self) -> bool {
+        self.fut.is_closed()
+    }
+
+    #[inline]
+    pub fn as_ptr(&self) -> ptr::NonNull<TicketFuture> {
+        self.fut.as_ptr().cast()
+    }
+}

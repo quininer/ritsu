@@ -177,6 +177,11 @@ impl<T> Receiver<T> {
 
         this.state.load(Ordering::Relaxed) & CLOSED == CLOSED
     }
+
+    #[inline]
+    pub fn as_ptr(&self) -> ptr::NonNull<Receiver<T>> {
+        (self.0).0.cast()
+    }
 }
 
 impl<T> Drop for InlineRc<T> {

@@ -1,4 +1,5 @@
 pub mod io;
+pub mod time;
 
 use std::pin::Pin;
 use std::future::Future;
@@ -41,5 +42,22 @@ impl<T: 'static> Future for Action<T> {
             },
             Poll::Pending => return Poll::Pending
         }
+    }
+}
+
+pub fn cancel<T: 'static>(handle: &dyn Handle, action: Action<T>) {
+    use io_uring::opcode;
+    use crate::EMPTY_TOKEN;
+
+    if action.ticket.is_closed() {
+        return;
+    }
+
+    let cancel_e = opcode::AsyncCancel::new(action.ticket.as_ptr().as_ptr() as _)
+        .build()
+        .user_data(EMPTY_TOKEN);
+
+    unsafe {
+        handle.push(cancel_e);
     }
 }
