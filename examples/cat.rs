@@ -1,5 +1,5 @@
 use std::{ io, env };
-use std::fs::File;
+use std::path::Path;
 use bytes::BytesMut;
 use anyhow::Context;
 use ritsu::Proactor;
@@ -15,7 +15,8 @@ fn main() -> anyhow::Result<()> {
     let handle = proactor.handle();
 
     proactor.block_on(async move {
-        let mut fd = File::open(target)?;
+        let target = Path::new(&target);
+        let mut fd = actions::fs::open(&handle, target).await?;
         let mut stdout = io::stdout();
         let mut buf = BytesMut::with_capacity(32 << 10);
 

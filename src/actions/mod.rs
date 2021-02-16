@@ -1,4 +1,5 @@
 pub mod io;
+pub mod fs;
 pub mod time;
 
 use std::pin::Pin;
