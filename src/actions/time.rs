@@ -1,3 +1,4 @@
+use std::io;
 use io_uring::{ types, opcode };
 use crate::handle::Handle;
 use crate::actions::action;
@@ -5,13 +6,13 @@ use crate::actions::action;
 
 
 pub async fn sleep(handle: &dyn Handle, dur: Box<types::Timespec>) -> io::Result<Box<types::Timespec>> {
-    let timeout_e = opcode::Timeout(&*dur).build();
+    let timeout_e = opcode::Timeout::new(&*dur).build();
 
     let (dur, cqe) = unsafe {
-        action(handle, dur, timeout_e).await;
+        action(handle, dur, timeout_e).await
     };
 
-    if ret = cqe.result();
+    let ret = cqe.result();
     if ret >= 0 {
         Ok(dur)
     } else {

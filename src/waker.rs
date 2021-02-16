@@ -17,7 +17,7 @@ const READY:   u8 = 0b01;
 const PARKING: u8 = 0b10;
 
 impl EventFd {
-    pub fn new() -> io::Result<EventFd> {
+    pub(crate) fn new() -> io::Result<EventFd> {
         let fd = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC | libc::EFD_NONBLOCK) };
 
         if fd != -1 {
@@ -31,22 +31,22 @@ impl EventFd {
     }
 
     #[inline]
-    pub fn park(&self) -> State {
+    pub(crate) fn park(&self) -> State {
         State(self.flag.fetch_or(PARKING, atomic::Ordering::AcqRel))
     }
 
     #[inline]
-    pub fn unpark(&self) {
+    pub(crate) fn unpark(&self) {
         self.flag.fetch_and(!PARKING, atomic::Ordering::Release);
     }
 
     #[inline]
-    pub fn reset(&self) {
+    pub(crate) fn reset(&self) {
         self.flag.fetch_and(!READY, atomic::Ordering::Release);
     }
 
     #[inline]
-    pub fn load(&self) -> State {
+    pub(crate) fn load(&self) -> State {
         State(self.flag.load(atomic::Ordering::Acquire))
     }
 }

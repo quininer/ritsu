@@ -19,10 +19,10 @@ use io_uring::{
     types, opcode, squeue, cqueue,
     IoUring, Submitter
 };
-use waker::EventFd;
 use ticket::Ticket;
 pub use ticket::TicketFuture;
 pub use handle::Handle;
+pub use waker::EventFd;
 
 
 pub struct Proactor {
@@ -59,7 +59,11 @@ impl Proactor {
         }
     }
 
-    fn park(&mut self, dur: Option<Duration>) -> io::Result<()> {
+    pub fn waker(&self) -> &Arc<EventFd> {
+        &self.eventfd
+    }
+
+    pub fn park(&mut self, dur: Option<Duration>) -> io::Result<()> {
         let mut ring = self.ring.borrow_mut();
         let (mut submitter, sq, cq) = ring.split();
 
