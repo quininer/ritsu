@@ -18,7 +18,7 @@ const PARKING: u8 = 0b10;
 
 impl EventFd {
     pub(crate) fn new() -> io::Result<EventFd> {
-        let fd = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC | libc::EFD_NONBLOCK) };
+        let fd = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC) };
 
         if fd != -1 {
             Ok(EventFd {

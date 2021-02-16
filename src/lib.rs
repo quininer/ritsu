@@ -67,7 +67,6 @@ impl Proactor {
         let (mut submitter, sq, cq) = ring.split();
 
         let (mut sq, mut cq) = (sq.available(), cq.available());
-        let cq_is_not_empty = cq.len() != 0;
 
         // clean cq
         cq_consume(&mut cq, &self.eventfd);
@@ -76,7 +75,6 @@ impl Proactor {
 
         // we has events, so we don't need to wait for timeout
         let nowait = state.is_ready()
-            || cq_is_not_empty
             || dur == Some(Duration::from_secs(0));
 
         if !state.is_parking() {
