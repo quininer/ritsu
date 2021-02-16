@@ -93,6 +93,8 @@ impl Proactor {
             }
         };
 
+        drop(sq);
+
         while let Err(err) =
             if nowait {
                 submitter.submit()
