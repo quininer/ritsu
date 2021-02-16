@@ -18,3 +18,9 @@ impl Handle for LocalHandle {
         }
     }
 }
+
+impl<T: Handle> Handle for &'_ T {
+    unsafe fn push(&self, entry: squeue::Entry) {
+        (**self).push(entry)
+    }
+}

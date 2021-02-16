@@ -20,7 +20,7 @@ pin_project!{
     }
 }
 
-pub unsafe fn action<T: 'static>(handle: &dyn Handle, value: T, entry: squeue::Entry)
+pub unsafe fn action<H: Handle, T: 'static>(handle: H, value: T, entry: squeue::Entry)
     -> Action<T>
 {
     let (tx, ticket) = Ticket::new();
@@ -42,12 +42,12 @@ impl<T: 'static> Future for Action<T> {
                 let val = unsafe { this.hold.as_ptr().read() };
                 Poll::Ready((val, entry))
             },
-            Poll::Pending => return Poll::Pending
+            Poll::Pending => Poll::Pending
         }
     }
 }
 
-pub fn cancel<T: 'static>(handle: &dyn Handle, action: Action<T>) {
+pub fn cancel<H: Handle, T: 'static>(handle: H, action: Action<T>) {
     use io_uring::opcode;
     use crate::EMPTY_TOKEN;
 

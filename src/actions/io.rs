@@ -13,8 +13,8 @@ unsafe impl TrustedAsRawFd for std::io::Stdout {}
 unsafe impl TrustedAsRawFd for std::io::Stderr {}
 unsafe impl TrustedAsRawFd for std::net::TcpStream {}
 
-pub async fn read_buf<T: TrustedAsRawFd, B: BufMut + 'static>(
-    handle: &dyn Handle,
+pub async fn read_buf<H: Handle, T: TrustedAsRawFd, B: BufMut + 'static>(
+    handle: H,
     fd: &mut Option<T>,
     mut buf: B,
     offset: Option<u32>
@@ -36,8 +36,6 @@ pub async fn read_buf<T: TrustedAsRawFd, B: BufMut + 'static>(
         .offset(offset.map(|offset| offset as _).unwrap_or(-1))
         .build();
 
-    drop(chunk);
-
     let ((fd2, mut buf), cqe) = unsafe {
         action(handle, (fd2, buf), read_e).await
     };
@@ -55,8 +53,8 @@ pub async fn read_buf<T: TrustedAsRawFd, B: BufMut + 'static>(
     }
 }
 
-pub async fn write_buf<T: TrustedAsRawFd, B: Buf + 'static>(
-    handle: &dyn Handle,
+pub async fn write_buf<H: Handle, T: TrustedAsRawFd, B: Buf + 'static>(
+    handle: H,
     fd: &mut Option<T>,
     buf: B,
     offset: Option<u32>
@@ -77,8 +75,6 @@ pub async fn write_buf<T: TrustedAsRawFd, B: Buf + 'static>(
     )
         .offset(offset.map(|offset| offset as _).unwrap_or(-1))
         .build();
-
-    drop(chunk);
 
     let ((fd2, mut buf), cqe) = unsafe {
         action(handle, (fd2, buf), write_e).await

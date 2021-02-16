@@ -9,7 +9,7 @@ use crate::handle::Handle;
 use crate::actions::action;
 
 
-pub async fn open(handle: &dyn Handle, path: &Path) -> io::Result<File> {
+pub async fn open<H: Handle>(handle: H, path: &Path) -> io::Result<File> {
     let path = CString::new(path.as_os_str().as_bytes())?;
 
     let open_e = opcode::OpenAt::new(

@@ -5,7 +5,7 @@ use crate::actions::action;
 
 
 
-pub async fn sleep(handle: &dyn Handle, dur: Box<types::Timespec>) -> io::Result<Box<types::Timespec>> {
+pub async fn sleep<H: Handle>(handle: H, dur: Box<types::Timespec>) -> io::Result<Box<types::Timespec>> {
     let timeout_e = opcode::Timeout::new(&*dur).build();
 
     let (dur, cqe) = unsafe {
