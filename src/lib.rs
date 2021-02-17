@@ -16,8 +16,9 @@ use std::task::{ Context, Poll };
 use std::os::unix::io::AsRawFd;
 use futures_task as task;
 use io_uring::{
-    types, opcode, squeue, cqueue,
-    IoUring, Submitter
+    types, opcode,
+    IoUring, Submitter,
+    SubmissionQueue, CompletionQueue
 };
 pub use ticket::{ Ticket, TicketFuture };
 pub use handle::Handle;
@@ -64,9 +65,7 @@ impl Proactor {
 
     pub fn park(&mut self, dur: Option<Duration>) -> io::Result<()> {
         let mut ring = self.ring.borrow_mut();
-        let (mut submitter, sq, cq) = ring.split();
-
-        let (mut sq, mut cq) = (sq.available(), cq.available());
+        let (mut submitter, mut sq, mut cq) = ring.split();
 
         // clean cq
         cq_consume(&mut cq, &self.eventfd);
@@ -89,11 +88,11 @@ impl Proactor {
             }
 
             unsafe {
-                sq.push(entry).ok().unwrap();
+                sq.push(&entry).unwrap();
             }
-        };
 
-        drop(sq);
+            drop(sq);
+        };
 
         while let Err(err) =
             if nowait {
@@ -129,8 +128,8 @@ impl Proactor {
     pub fn block_on<F: Future>(&mut self, mut f: F) -> io::Result<F::Output> {
         {
             let mut ring = self.ring.borrow_mut();
-            let (mut submitter, sq, cq) = ring.split();
-            sq_submit(&mut submitter, &mut sq.available(), &mut cq.available(), &self.eventfd)?;
+            let (mut submitter, mut sq, mut cq) = ring.split();
+            sq_submit(&mut submitter, &mut sq, &mut cq, &self.eventfd)?;
         }
 
         loop {
@@ -151,7 +150,7 @@ impl Proactor {
 }
 
 
-fn cq_consume(cq: &mut cqueue::AvailableQueue, eventfd: &EventFd) {
+fn cq_consume(cq: &mut CompletionQueue<'_>, eventfd: &EventFd) {
     for entry in cq {
         match entry.user_data() {
             WAKE_TOKEN => eventfd.unpark(),
@@ -166,8 +165,8 @@ fn cq_consume(cq: &mut cqueue::AvailableQueue, eventfd: &EventFd) {
 
 fn sq_submit(
     submitter: &mut Submitter,
-    sq: &mut squeue::AvailableQueue,
-    cq: &mut cqueue::AvailableQueue,
+    sq: &mut SubmissionQueue<'_>,
+    cq: &mut CompletionQueue<'_>,
     eventfd: &EventFd
 ) -> io::Result<()> {
     sq.sync();
@@ -199,9 +198,7 @@ impl Drop for Proactor {
 
 #[cold]
 fn proactor_drop(ring: &mut IoUring, eventfd: &EventFd) -> io::Result<()> {
-    let (mut submitter, sq, cq) = ring.split();
-    let mut sq = sq.available();
-    let mut cq = cq.available();
+    let (mut submitter, mut sq, mut cq) = ring.split();
 
     for entry in &mut cq {
         if entry.user_data() == WAKE_TOKEN {
@@ -209,13 +206,12 @@ fn proactor_drop(ring: &mut IoUring, eventfd: &EventFd) -> io::Result<()> {
         }
     }
 
-    let mut cancel_e = opcode::AsyncCancel::new(WAKE_TOKEN)
+    let cancel_e = opcode::AsyncCancel::new(WAKE_TOKEN)
         .build()
         .user_data(EMPTY_TOKEN);
 
     unsafe {
-        while let Err(cancel_e2) = sq.push(cancel_e) {
-            cancel_e = cancel_e2;
+        while sq.push(&cancel_e).is_err() {
             sq_submit(&mut submitter, &mut sq, &mut cq, eventfd)?;
         }
     }

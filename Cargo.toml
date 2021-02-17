@@ -18,7 +18,7 @@ bytes = "1"
 futures-task = "0.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-io-uring = { version = "0.5.0-alpha.3", features = [ "unstable" ] }
+io-uring = { version = "0.5.0-alpha.4", features = [ "unstable" ] }
 
 [dev-dependencies]
 anyhow = "1"
