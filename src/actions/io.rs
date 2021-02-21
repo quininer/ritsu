@@ -3,7 +3,7 @@ use std::os::unix::io::AsRawFd;
 use bytes::{ Buf, BufMut };
 use io_uring::{ types, opcode };
 use crate::handle::Handle;
-use crate::actions::action;
+use crate::actions::{ action, PushError };
 
 
 pub unsafe trait TrustedAsRawFd: AsRawFd + 'static {}
@@ -37,7 +37,8 @@ pub async fn read_buf<H: Handle, T: TrustedAsRawFd, B: BufMut + 'static>(
         .build();
 
     let ((fd2, mut buf), cqe) = unsafe {
-        action(handle, (fd2, buf), read_e).await
+        action(handle, (fd2, buf), read_e)
+            .map_err(PushError::into_error)?.await
     };
 
     let ret = cqe.result();
@@ -77,7 +78,8 @@ pub async fn write_buf<H: Handle, T: TrustedAsRawFd, B: Buf + 'static>(
         .build();
 
     let ((fd2, mut buf), cqe) = unsafe {
-        action(handle, (fd2, buf), write_e).await
+        action(handle, (fd2, buf), write_e)
+            .map_err(PushError::into_error)?.await
     };
 
     let ret = cqe.result();

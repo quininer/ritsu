@@ -6,7 +6,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::io::FromRawFd;
 use io_uring::{ types, opcode };
 use crate::handle::Handle;
-use crate::actions::action;
+use crate::actions::{ action, PushError };
 
 
 pub async fn open<H: Handle>(handle: H, path: &Path) -> io::Result<File> {
@@ -19,7 +19,8 @@ pub async fn open<H: Handle>(handle: H, path: &Path) -> io::Result<File> {
         .build();
 
     let (_, cqe) = unsafe {
-        action(handle, path, open_e).await
+        action(handle, path, open_e)
+            .map_err(PushError::into_error)?.await
     };
 
     let ret = cqe.result();

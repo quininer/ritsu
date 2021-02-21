@@ -175,8 +175,11 @@ fn sq_submit(
         return Ok(())
     }
 
+    let mut count = 0;
+
     while let Err(err) = submitter.submit() {
-        if err.raw_os_error() == Some(libc::EBUSY) {
+        if err.raw_os_error() == Some(libc::EBUSY) && count < 3 {
+            count += 1;
             cq.sync();
             cq_consume(cq, eventfd);
         } else {

@@ -20,14 +20,23 @@ pin_project!{
     }
 }
 
+pub struct PushError<T> {
+    error: std::io::Error,
+    value: T
+}
+
 pub unsafe fn action<H: Handle, T: 'static>(handle: H, value: T, entry: squeue::Entry)
-    -> Action<T>
+    -> Result<Action<T>, PushError<T>>
 {
     let (tx, ticket) = Ticket::new();
-    handle.push(tx.register(entry));
-    let hold = MaybeUninit::new(value);
 
-    Action { hold, ticket }
+    match handle.push(tx.register(entry)) {
+        Ok(()) => {
+            let hold = MaybeUninit::new(value);
+            Ok(Action { hold, ticket })
+        },
+        Err(error) => Err(PushError { error, value })
+    }
 }
 
 impl<T: 'static> Future for Action<T> {
@@ -47,12 +56,24 @@ impl<T: 'static> Future for Action<T> {
     }
 }
 
-pub fn cancel<H: Handle, T: 'static>(handle: H, action: Action<T>) {
+impl<T> PushError<T> {
+    #[inline]
+    pub fn into_inner(self) -> (std::io::Error, T) {
+        (self.error, self.value)
+    }
+
+    #[inline]
+    pub fn into_error(self) -> std::io::Error {
+        self.error
+    }
+}
+
+pub fn cancel<H: Handle, T: 'static>(handle: H, action: Action<T>) -> std::io::Result<()> {
     use io_uring::opcode;
     use crate::EMPTY_TOKEN;
 
     if action.ticket.is_closed() {
-        return;
+        return Ok(());
     }
 
     let cancel_e = opcode::AsyncCancel::new(action.ticket.as_ptr().as_ptr() as _)
@@ -60,16 +81,21 @@ pub fn cancel<H: Handle, T: 'static>(handle: H, action: Action<T>) {
         .user_data(EMPTY_TOKEN);
 
     unsafe {
-        handle.push(cancel_e);
+        handle.push(cancel_e)?;
     }
+
+    Ok(())
 }
 
-pub async fn nop<H: Handle>(handle: H) {
+pub async fn nop<H: Handle>(handle: H) -> std::io::Result<()> {
     use io_uring::opcode;
 
     let nop_e = opcode::Nop::new().build();
 
     unsafe {
-        action(handle, (), nop_e).await;
+        action(handle, (), nop_e)
+            .map_err(PushError::into_error)?.await;
     }
+
+    Ok(())
 }
