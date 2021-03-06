@@ -6,7 +6,7 @@ use std::pin::Pin;
 use std::future::Future;
 use std::mem::MaybeUninit;
 use std::task::{ Context, Poll };
-use io_uring::cqueue;
+use io_uring::{ squeue, cqueue };
 use pin_project_lite::pin_project;
 use crate::ticket::{ Ticket, TicketFuture };
 use crate::handle::Handle;

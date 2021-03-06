@@ -90,9 +90,9 @@ impl Proactor {
             unsafe {
                 sq.push(&entry).unwrap();
             }
-
-            drop(sq);
         };
+
+        drop(sq);
 
         while let Err(err) =
             if nowait {

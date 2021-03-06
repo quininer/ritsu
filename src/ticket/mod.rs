@@ -5,7 +5,7 @@ use std::pin::Pin;
 use std::task::{ Context, Poll };
 use std::future::Future;
 use pin_project_lite::pin_project;
-use io_uring::{ squeue, cqueue };
+use io_uring::cqueue;
 
 
 pub struct Ticket(oneshot::Sender<cqueue::Entry>);
