@@ -6,7 +6,7 @@ use std::pin::Pin;
 use std::future::Future;
 use std::mem::MaybeUninit;
 use std::task::{ Context, Poll };
-use io_uring::{ squeue, cqueue };
+use io_uring::cqueue;
 use pin_project_lite::pin_project;
 use crate::ticket::{ Ticket, TicketFuture };
 use crate::handle::Handle;
@@ -29,13 +29,18 @@ pub unsafe fn action<H: Handle, T: 'static>(handle: H, value: T, entry: squeue::
     -> Result<Action<T>, PushError<T>>
 {
     let (tx, ticket) = Ticket::new();
+    let tx_ptr = tx.into_raw();
+    let entry = entry.user_data(tx_ptr.as_ptr() as _);
 
-    match handle.push(tx.register(entry)) {
+    match handle.push(&entry) {
         Ok(()) => {
             let hold = MaybeUninit::new(value);
             Ok(Action { hold, ticket })
         },
-        Err(error) => Err(PushError { error, value })
+        Err(error) => {
+            Ticket::from_raw(tx_ptr);
+            Err(PushError { error, value })
+        }
     }
 }
 
@@ -81,7 +86,7 @@ pub fn cancel<H: Handle, T: 'static>(handle: H, action: Action<T>) -> std::io::R
         .user_data(EMPTY_TOKEN);
 
     unsafe {
-        handle.push(cancel_e)?;
+        handle.push(&cancel_e)?;
     }
 
     Ok(())

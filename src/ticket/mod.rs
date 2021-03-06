@@ -19,8 +19,8 @@ impl Ticket {
     }
 
     #[inline]
-    pub fn register(self, entry: squeue::Entry) -> squeue::Entry {
-        entry.user_data(self.0.into_raw().as_ptr() as _)
+    pub(crate) fn into_raw(self) -> ptr::NonNull<Ticket> {
+        self.0.into_raw().cast()
     }
 
     #[inline]
