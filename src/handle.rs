@@ -4,6 +4,11 @@ use crate::{ LocalHandle, sq_submit };
 
 
 pub trait Handle {
+    /// Push entry into the io_uring submission queue.
+    ///
+    /// # Safety
+    ///
+    /// See io_uring submission queue.
     unsafe fn push(&self, entry: &squeue::Entry) -> io::Result<()>;
 }
 

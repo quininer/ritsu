@@ -25,6 +25,11 @@ pub struct PushError<T> {
     value: T
 }
 
+/// Action Helper function
+///
+/// # Safety
+///
+/// Must ensure that the io_uring submission entry parameter is valid.
 pub unsafe fn action<H: Handle, T: 'static>(handle: H, value: T, entry: squeue::Entry)
     -> Result<Action<T>, PushError<T>>
 {

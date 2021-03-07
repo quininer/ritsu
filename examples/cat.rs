@@ -14,7 +14,7 @@ fn main() -> anyhow::Result<()> {
     let mut proactor = Proactor::new()?;
     let handle = proactor.handle();
 
-    proactor.block_on(async move {
+    ritsu::block_on(&mut proactor, async move {
         let target = Path::new(&target);
         let mut fd = actions::fs::open(&handle, target).await?;
         let mut stdout = io::stdout();

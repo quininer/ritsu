@@ -8,7 +8,7 @@ fn main() -> anyhow::Result<()> {
 
     let taskset = LocalSet::new();
 
-    proactor.block_on(async move {
+    ritsu::block_on(&mut proactor, async move {
         for _ in 0..500 {
             for _ in 0..500 {
                 taskset.spawn_local(actions::nop(handle.clone()));

@@ -42,7 +42,11 @@ const EMPTY_TOKEN: u64 = 0x1;
 
 impl Proactor {
     pub fn new() -> io::Result<Proactor> {
-        let ring = IoUring::new(256)?;
+        Self::with_builder(Default::default(), 256)
+    }
+
+    pub fn with_builder(builder: io_uring::Builder, entries: u32) -> io::Result<Proactor> {
+        let ring = builder.build(entries)?;
         let eventfd = EventFd::new()?;
 
         Ok(Proactor {
@@ -84,11 +88,17 @@ impl Proactor {
                 .user_data(WAKE_TOKEN);
 
             if sq.is_full() {
-                sq_submit(&mut submitter, &mut sq, &mut cq, &self.eventfd)?;
+                match sq_submit(&mut submitter, &mut sq, &mut cq, &self.eventfd) {
+                    Ok(()) => (),
+                    Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => (),
+                    Err(err) => return Err(err)
+                }
             }
 
-            unsafe {
-                sq.push(&entry).unwrap();
+            if unsafe { sq.push(&entry).is_err() } {
+                // If the new park entry cannot be pushed in,
+                // it will be postponed until the next time.
+                self.eventfd.unpark();
             }
         };
 
@@ -124,28 +134,29 @@ impl Proactor {
 
         Ok(())
     }
+}
 
-    pub fn block_on<F: Future>(&mut self, mut f: F) -> io::Result<F::Output> {
-        {
-            let mut ring = self.ring.borrow_mut();
-            let (mut submitter, mut sq, mut cq) = ring.split();
-            sq_submit(&mut submitter, &mut sq, &mut cq, &self.eventfd)?;
+
+pub fn block_on<F: Future>(proactor: &mut Proactor, mut f: F) -> io::Result<F::Output> {
+    {
+        let mut ring = proactor.ring.borrow_mut();
+        let (mut submitter, mut sq, mut cq) = ring.split();
+        sq_submit(&mut submitter, &mut sq, &mut cq, &proactor.eventfd)?;
+    }
+
+    loop {
+        let waker = task::waker_ref(&proactor.eventfd);
+        let mut cx = Context::from_waker(&waker);
+
+        let f = unsafe {
+            Pin::new_unchecked(&mut f)
+        };
+
+        if let Poll::Ready(val) = f.poll(&mut cx) {
+            return Ok(val);
         }
 
-        loop {
-            let waker = task::waker_ref(&self.eventfd);
-            let mut cx = Context::from_waker(&waker);
-
-            let f = unsafe {
-                Pin::new_unchecked(&mut f)
-            };
-
-            if let Poll::Ready(val) = f.poll(&mut cx) {
-                return Ok(val);
-            }
-
-            self.park(None)?;
-        }
+        proactor.park(None)?;
     }
 }
 

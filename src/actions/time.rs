@@ -4,7 +4,6 @@ use crate::handle::Handle;
 use crate::actions::{ action, PushError };
 
 
-
 pub async fn sleep<H: Handle>(handle: H, dur: Box<types::Timespec>) -> io::Result<Box<types::Timespec>> {
     let timeout_e = opcode::Timeout::new(&*dur).build();
 
