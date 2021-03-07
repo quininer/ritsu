@@ -19,9 +19,9 @@ unsafe impl<T: Send> Sync for InlineRc<T> {}
 struct InlineRc<T>(ptr::NonNull<Inner<T>>);
 
 struct Inner<T> {
-    state: AtomicU8,
     waker: UnsafeCell<mem::MaybeUninit<Waker>>,
     value: UnsafeCell<mem::MaybeUninit<T>>,
+    state: AtomicU8,
 }
 
 const WAKER_READY: u8 = 0b001;

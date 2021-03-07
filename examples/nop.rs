@@ -1,6 +1,5 @@
 use tokio::task::{ LocalSet, yield_now };
-use ritsu::Proactor;
-use ritsu::actions;
+use ritsu::{ actions, Proactor };
 
 fn main() -> anyhow::Result<()> {
     let mut proactor = Proactor::new()?;
