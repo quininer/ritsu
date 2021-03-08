@@ -47,8 +47,10 @@ pub(crate) fn main(options: &Options) -> anyhow::Result<()> {
                     }
                 };
 
-                let (_, buf) = actions::io::read_buf(&handle, &mut Some(fd), buf, Some(start as _))
+                let (_, mut buf) = actions::io::read_buf(&handle, &mut Some(fd), buf, Some(start as _))
                     .await?;
+
+                buf.clear();
 
                 bufpool.borrow_mut().push(buf);
 
