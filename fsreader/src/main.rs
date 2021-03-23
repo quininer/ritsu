@@ -1,5 +1,6 @@
 mod util;
 mod async_io;
+mod sync_io;
 
 use std::path::PathBuf;
 use argh::FromArgs;
@@ -51,7 +52,7 @@ fn main() -> anyhow::Result<()> {
 
     match options.mode {
         IoMode::AsyncBuffered | IoMode::AsyncDirect => async_io::main(&options)?,
-        _ => todo!()
+        IoMode::SyncBuffered | IoMode::SyncDirect => sync_io::main(&options)?
     }
 
     Ok(())

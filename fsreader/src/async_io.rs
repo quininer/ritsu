@@ -43,15 +43,15 @@ pub(crate) fn main(options: &Options) -> anyhow::Result<()> {
             let bufpool = bufpool.clone();
 
             let j = taskset.spawn_local(async move {
-                let buf = loop {
+                let buf = {
                     let buf = bufpool.borrow_mut().pop();
                     if let Some(buf) = buf {
-                        break buf;
+                        buf
                     } else {
                         yield_now().await;
-                        break bufpool.borrow_mut()
+                        bufpool.borrow_mut()
                             .pop()
-                            .unwrap_or_else(|| AlignedBuffer::with_capacity(bufsize));
+                            .unwrap_or_else(|| AlignedBuffer::with_capacity(bufsize))
                     }
                 };
 
