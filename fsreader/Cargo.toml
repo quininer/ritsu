@@ -11,6 +11,7 @@ ritsu = { path = ".." }
 argh = "0.1"
 anyhow = "1"
 bytes = "1"
+libc = "0.2"
 tokio = { version = "1", features = [ "rt", "sync" ] }
 rand = "0.8"
 rand_chacha = "0.3"

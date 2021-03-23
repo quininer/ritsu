@@ -1,5 +1,5 @@
 mod util;
-mod async_buffered;
+mod async_io;
 
 use std::path::PathBuf;
 use argh::FromArgs;
@@ -50,7 +50,7 @@ fn main() -> anyhow::Result<()> {
     let options: Options = argh::from_env();
 
     match options.mode {
-        IoMode::AsyncBuffered => async_buffered::main(&options)?,
+        IoMode::AsyncBuffered | IoMode::AsyncDirect => async_io::main(&options)?,
         _ => todo!()
     }
 
