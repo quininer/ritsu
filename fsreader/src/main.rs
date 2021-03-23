@@ -14,12 +14,16 @@ pub struct Options {
     target: PathBuf,
 
     /// io mode
-    #[argh(option, from_str_fn(parse_io_mode))]
+    #[argh(option, short = 'm', from_str_fn(parse_io_mode))]
     mode: IoMode,
 
     /// access mode
-    #[argh(option, from_str_fn(parse_access_mode))]
+    #[argh(option, short = 'a', from_str_fn(parse_access_mode))]
     access: AccessMode,
+
+    /// direct io
+    #[argh(switch, short = 'd')]
+    direct: bool,
 
     /// buffer size
     #[argh(option, default = "4096")]
@@ -36,10 +40,8 @@ pub struct Options {
 
 #[derive(Clone, Copy)]
 pub enum IoMode {
-    AsyncBuffered,
-    SyncBuffered,
-    AsyncDirect,
-    SyncDirect
+    Async,
+    Sync
 }
 
 pub enum AccessMode {
@@ -51,8 +53,8 @@ fn main() -> anyhow::Result<()> {
     let options: Options = argh::from_env();
 
     match options.mode {
-        IoMode::AsyncBuffered | IoMode::AsyncDirect => async_io::main(&options)?,
-        IoMode::SyncBuffered | IoMode::SyncDirect => sync_io::main(&options)?
+        IoMode::Async => async_io::main(&options)?,
+        IoMode::Sync => sync_io::main(&options)?
     }
 
     Ok(())
@@ -60,10 +62,8 @@ fn main() -> anyhow::Result<()> {
 
 fn parse_io_mode(value: &str) -> Result<IoMode, String> {
     match value {
-        "ab" | "async-buffered" => Ok(IoMode::AsyncBuffered),
-        "sb" | "sync-buffered" => Ok(IoMode::SyncBuffered),
-        "ad" | "async-direct" => Ok(IoMode::AsyncDirect),
-        "sd" | "sync-direct" => Ok(IoMode::SyncDirect),
+        "a" | "async" => Ok(IoMode::Async),
+        "s" | "sync" => Ok(IoMode::Sync),
         _ => Err("bad mode".into())
     }
 }

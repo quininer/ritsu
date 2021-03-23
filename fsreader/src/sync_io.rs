@@ -6,14 +6,14 @@ use std::os::unix::io::AsRawFd;
 use std::os::unix::fs::OpenOptionsExt;
 use bytes::BufMut;
 use tokio::task::{ LocalSet, yield_now };
-use crate::{ Options, IoMode };
+use crate::Options;
 use crate::util::{ RcFile, plan, AlignedBuffer };
 
 
 pub(crate) fn main(options: &Options) -> anyhow::Result<()> {
     let mut open_options = fs::OpenOptions::new();
 
-    if let IoMode::AsyncDirect = options.mode {
+    if options.direct {
         open_options.custom_flags(libc::O_DIRECT);
     }
 
