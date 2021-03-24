@@ -21,9 +21,9 @@ pub fn plan(total: u64, options: &Options) -> Vec<u64> {
     let bufsize = options.bufsize as u64;
     let iter = (total / bufsize) + (total % bufsize != 0) as u64;
 
-    let mut queue = Vec::with_capacity(iter as usize * options.count);
+    let mut queue = Vec::with_capacity(iter as usize * options.repeat);
 
-    for _ in 0..options.count {
+    for _ in 0..options.repeat {
         queue.extend((0..iter).map(|p| p * bufsize));
     }
 
@@ -58,6 +58,10 @@ impl AlignedBuffer {
 
             AlignedBuffer { ptr, cap, len: 0 }
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
     }
 
     pub fn clear(&mut self) {

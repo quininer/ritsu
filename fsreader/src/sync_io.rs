@@ -26,6 +26,7 @@ pub(crate) fn main(options: &Options) -> anyhow::Result<()> {
 
     for _ in 0..count {
         let now = Instant::now();
+        let mut size_count: u64 = 0;
 
         for &start in queue.iter() {
             unsafe {
@@ -45,10 +46,17 @@ pub(crate) fn main(options: &Options) -> anyhow::Result<()> {
                 buf.advance_mut(ret as _);
             }
 
+            size_count += buf.len() as u64;
+
             buf.clear();
         }
 
         println!("dur: {:?}", now.elapsed());
+
+        let total = total * options.repeat as u64;
+        if total != size_count as u64 {
+            println!("expected: {}, actual: {}", total, size_count);
+        }
     }
 
     Ok(())

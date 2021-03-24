@@ -33,6 +33,10 @@ pub struct Options {
     #[argh(option, default = "1")]
     count: usize,
 
+    /// repeat count (can be random)
+    #[argh(option, default = "1")]
+    repeat: usize,
+
     /// random seed
     #[argh(option, from_str_fn(parse_hex))]
     seed: Option<u64>

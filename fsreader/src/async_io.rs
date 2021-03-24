@@ -1,7 +1,7 @@
 use std::{ io, fs };
 use std::rc::Rc;
 use std::time::Instant;
-use std::cell::RefCell;
+use std::cell::{ RefCell, Cell };
 use std::os::unix::fs::OpenOptionsExt;
 use tokio::task::{ LocalSet, yield_now };
 use ritsu::{ actions, Proactor };
@@ -39,11 +39,13 @@ pub(crate) fn main(options: &Options) -> anyhow::Result<()> {
             let taskset = LocalSet::new();
             let mut jobs = Vec::with_capacity(queue.len());
             let now = Instant::now();
+            let size_count = Rc::new(Cell::new(0));
 
             for &start in queue.iter() {
                 let handle = handle.clone();
                 let fd = fd.clone();
                 let bufpool = bufpool.clone();
+                let size_count = size_count.clone();
 
                 let j = taskset.spawn_local(async move {
                     let buf = {
@@ -60,6 +62,8 @@ pub(crate) fn main(options: &Options) -> anyhow::Result<()> {
 
                     let (_, mut buf) = actions::io::read_buf(&handle, &mut Some(fd), buf, Some(start as _))
                         .await?;
+
+                    size_count.set(size_count.get() + buf.len() as u64);
 
                     buf.clear();
 
@@ -78,6 +82,11 @@ pub(crate) fn main(options: &Options) -> anyhow::Result<()> {
             }
 
             println!("dur: {:?}", now.elapsed());
+
+            let total = total * options.repeat as u64;
+            if total != size_count.get() as u64 {
+                println!("expected: {}, actual: {}", total, size_count.get());
+            }
         }
 
         Ok(()) as io::Result<()>
