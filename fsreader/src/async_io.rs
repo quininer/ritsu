@@ -12,7 +12,6 @@ use crate::util::{ RcFile, plan, AlignedBuffer };
 pub(crate) fn main(options: &Options) -> anyhow::Result<()> {
     let mut proactor = Proactor::new()?;
     let handle = proactor.handle();
-    let taskset = LocalSet::new();
 
     let mut open_options = fs::OpenOptions::new();
 
@@ -25,6 +24,7 @@ pub(crate) fn main(options: &Options) -> anyhow::Result<()> {
         .open(&options.target)?;
     let total = fd.metadata()?.len();
 
+    let count = options.count;
     let bufsize = options.bufsize;
     let queue = plan(total, &options);
     let bufpool = (0..128)
@@ -34,47 +34,51 @@ pub(crate) fn main(options: &Options) -> anyhow::Result<()> {
 
     ritsu::block_on(&mut proactor, async move {
         let fd = RcFile(Rc::new(fd));
-        let mut jobs = Vec::with_capacity(queue.len());
-        let now = Instant::now();
 
-        for start in queue {
-            let handle = handle.clone();
-            let fd = fd.clone();
-            let bufpool = bufpool.clone();
+        for _ in 0..count {
+            let taskset = LocalSet::new();
+            let mut jobs = Vec::with_capacity(queue.len());
+            let now = Instant::now();
 
-            let j = taskset.spawn_local(async move {
-                let buf = {
-                    let buf = bufpool.borrow_mut().pop();
-                    if let Some(buf) = buf {
-                        buf
-                    } else {
-                        yield_now().await;
-                        bufpool.borrow_mut()
-                            .pop()
-                            .unwrap_or_else(|| AlignedBuffer::with_capacity(bufsize))
-                    }
-                };
+            for &start in queue.iter() {
+                let handle = handle.clone();
+                let fd = fd.clone();
+                let bufpool = bufpool.clone();
 
-                let (_, mut buf) = actions::io::read_buf(&handle, &mut Some(fd), buf, Some(start as _))
-                    .await?;
+                let j = taskset.spawn_local(async move {
+                    let buf = {
+                        let buf = bufpool.borrow_mut().pop();
+                        if let Some(buf) = buf {
+                            buf
+                        } else {
+                            yield_now().await;
+                            bufpool.borrow_mut()
+                                .pop()
+                                .unwrap_or_else(|| AlignedBuffer::with_capacity(bufsize))
+                        }
+                    };
 
-                buf.clear();
+                    let (_, mut buf) = actions::io::read_buf(&handle, &mut Some(fd), buf, Some(start as _))
+                        .await?;
 
-                bufpool.borrow_mut().push(buf);
+                    buf.clear();
 
-                Ok(()) as io::Result<()>
-            });
+                    bufpool.borrow_mut().push(buf);
 
-            jobs.push(j);
+                    Ok(()) as io::Result<()>
+                });
+
+                jobs.push(j);
+            }
+
+            taskset.await;
+
+            for j in jobs {
+                j.await??;
+            }
+
+            println!("dur: {:?}", now.elapsed());
         }
-
-        taskset.await;
-
-        for j in jobs {
-            j.await??;
-        }
-
-        println!("dur: {:?}", now.elapsed());
 
         Ok(()) as io::Result<()>
     })??;
