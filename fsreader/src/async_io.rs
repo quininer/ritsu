@@ -9,7 +9,7 @@ use crate::Options;
 use crate::util::{ RcFile, plan, AlignedBuffer };
 
 
-pub(crate) fn main(options: &Options) -> anyhow::Result<()> {
+pub fn main(options: &Options) -> anyhow::Result<()> {
     let mut proactor = Proactor::new()?;
     let handle = proactor.handle();
 

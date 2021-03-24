@@ -7,7 +7,7 @@ use crate::Options;
 use crate::util::{ plan, AlignedBuffer };
 
 
-pub(crate) fn main(options: &Options) -> anyhow::Result<()> {
+pub fn main(options: &Options) -> anyhow::Result<()> {
     let mut open_options = fs::OpenOptions::new();
 
     if options.direct {

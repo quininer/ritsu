@@ -1,6 +1,7 @@
 mod util;
 mod async_io;
 mod sync_io;
+mod threaded_io;
 
 use std::path::PathBuf;
 use argh::FromArgs;
@@ -45,7 +46,8 @@ pub struct Options {
 #[derive(Clone, Copy)]
 pub enum IoMode {
     Async,
-    Sync
+    Sync,
+    Threaded
 }
 
 pub enum AccessMode {
@@ -58,7 +60,8 @@ fn main() -> anyhow::Result<()> {
 
     match options.mode {
         IoMode::Async => async_io::main(&options)?,
-        IoMode::Sync => sync_io::main(&options)?
+        IoMode::Sync => sync_io::main(&options)?,
+        IoMode::Threaded => threaded_io::main(&options)?
     }
 
     Ok(())
@@ -68,6 +71,7 @@ fn parse_io_mode(value: &str) -> Result<IoMode, String> {
     match value {
         "a" | "async" => Ok(IoMode::Async),
         "s" | "sync" => Ok(IoMode::Sync),
+        "t" | "thread" | "threaded" => Ok(IoMode::Threaded),
         _ => Err("bad mode".into())
     }
 }
