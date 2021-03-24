@@ -2,8 +2,7 @@ use std::{ io, env };
 use std::path::Path;
 use bytes::BytesMut;
 use anyhow::Context;
-use ritsu::Proactor;
-use ritsu::actions;
+use ritsu::{ actions, Proactor };
 
 
 fn main() -> anyhow::Result<()> {
